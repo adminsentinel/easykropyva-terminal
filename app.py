@@ -13,16 +13,7 @@ from pathlib import Path
 import requests
 import math
 
-# Додаємо шлях до src
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
-
 app = Flask(__name__)
-
-# Глобальний координатор та цикл
-coordinator = None
-coordinator_loop = None
-coordinator_thread = None
-running_event = None
 
 # EasyKropyva in-memory state
 nodes = []
