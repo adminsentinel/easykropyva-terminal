@@ -26,7 +26,8 @@ home_point = None  # Домашня база: {"lat": ..., "lng": ..., "name": "
 @app.route('/')
 def index():
     """Головна сторінка"""
-    easyk_path = Path(__file__).resolve().parents[3] / "easykropyva_terminal_v1_3.html"
+    # Для Render: HTML в корені репозиторію поруч з app.py
+    easyk_path = Path(__file__).parent / "easykropyva_terminal_v1_3.html"
     if easyk_path.exists():
         return Response(easyk_path.read_text(encoding="utf-8"), mimetype="text/html")
     return render_template('index.html')
