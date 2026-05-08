@@ -1,0 +1,1208 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>EasyKropyva Tactical Terminal v1.3</title>
+
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+  <style>
+    :root {
+      --bg: #0a1116;
+      --panel: #111a22;
+      --panel-2: #15202a;
+      --line: #1f2d3a;
+      --text: #d4dde6;
+      --text-dim: #8a9ba8;
+      --ok: #00e676;
+      --warn: #29b6f6;
+      --danger: #ff3366;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: radial-gradient(circle at top right, #12202a 0%, var(--bg) 50%);
+      color: var(--text);
+      height: 100vh;
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      overflow: hidden;
+    }
+
+    .sidebar {
+      border-right: 1px solid var(--line);
+      background: linear-gradient(180deg, var(--panel) 0%, #0c141b 100%);
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      overflow: auto;
+    }
+
+    .title {
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      font-size: 14px;
+      color: var(--ok);
+    }
+
+    .toolbar {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .tool-btn {
+      background: var(--panel-2);
+      color: var(--text);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: 0.15s ease;
+    }
+
+    .tool-btn:hover { border-color: var(--warn); }
+    .tool-btn.active {
+      border-color: var(--ok);
+      box-shadow: 0 0 0 1px color-mix(in srgb, var(--ok) 50%, transparent);
+      color: var(--ok);
+    }
+
+    .section-title {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      color: var(--text-dim);
+      margin: 8px 0 4px 0;
+      padding-left: 4px;
+      border-left: 2px solid var(--ok);
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px;
+    }
+
+    .panel.compact {
+      padding: 6px 10px;
+    }
+
+    .panel.compact .row {
+      padding: 3px 0;
+      font-size: 11px;
+    }
+
+    .panel.list-panel {
+      flex: 1;
+      overflow-y: auto;
+      min-height: 100px;
+      max-height: 200px;
+    }
+
+    .row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 12px;
+      color: var(--text-dim);
+      margin-bottom: 6px;
+    }
+
+    #coord-display {
+      font-family: ui-monospace, "Cascadia Mono", monospace;
+      font-size: 12px;
+      color: var(--warn);
+    }
+
+    #node-list {
+      max-height: 38vh;
+      overflow: auto;
+      display: grid;
+      gap: 6px;
+    }
+
+    .node-item {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px;
+      cursor: pointer;
+      background: #121d26;
+    }
+
+    .node-item:hover { border-color: var(--warn); }
+    .node-name { font-size: 12px; font-weight: 600; color: var(--text); }
+    .node-meta { margin-top: 4px; font-size: 11px; color: var(--text-dim); display: flex; justify-content: space-between; }
+
+    .map-wrap {
+      position: relative;
+      width: 100%;
+      height: 100%;
+    }
+
+    #map { width: 100%; height: 100%; }
+
+    .radar-icon { background: transparent; border: none; }
+    .radar-ring {
+      position: absolute;
+      width: 20px;
+      height: 20px;
+      border: 1px solid;
+      border-radius: 50%;
+      opacity: 0.6;
+      animation: pulse 1.5s infinite ease-out;
+    }
+    .radar-blip {
+      position: absolute;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      top: 6px;
+      left: 6px;
+    }
+
+    @keyframes pulse {
+      0% { transform: scale(0.8); opacity: 0.9; }
+      100% { transform: scale(1.6); opacity: 0; }
+    }
+
+    #elevation-panel {
+      position: absolute;
+      right: 12px;
+      bottom: 12px;
+      width: 420px;
+      height: 230px;
+      background: rgba(14, 23, 31, 0.96);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      display: none;
+      flex-direction: column;
+      overflow: hidden;
+      z-index: 1000;
+    }
+
+    .elev-head {
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+      color: var(--text-dim);
+    }
+
+    .elev-head button {
+      border: 1px solid var(--line);
+      background: var(--panel-2);
+      color: var(--text);
+      border-radius: 6px;
+      font-size: 11px;
+      padding: 4px 8px;
+      cursor: pointer;
+    }
+
+    #elevation-stats {
+      display: flex;
+      justify-content: space-between;
+      padding: 6px 10px;
+      font-size: 11px;
+      color: var(--ok);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .chart-wrap {
+      flex: 1;
+      padding: 8px;
+      min-height: 120px;
+      position: relative;
+    }
+
+    #elevationChart {
+      width: 100% !important;
+      height: 100% !important;
+    }
+
+    /* Modal styles */
+    .modal {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.7);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+    }
+
+    .modal-content {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 20px;
+      min-width: 280px;
+      max-width: 350px;
+    }
+
+    .modal-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 16px;
+      text-align: center;
+    }
+
+    .modal-body {
+      margin-bottom: 16px;
+    }
+
+    .form-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+      font-size: 12px;
+    }
+
+    .form-row label {
+      color: var(--text-dim);
+    }
+
+    .form-row select, .form-row input {
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      color: var(--text);
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      min-width: 140px;
+    }
+
+    .modal-actions {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+
+    /* List item styles */
+    .list-item {
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 8px 10px;
+      margin-bottom: 6px;
+      font-size: 11px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .list-item:hover {
+      border-color: var(--warn);
+    }
+
+    .list-item .name {
+      color: var(--text);
+      font-weight: 500;
+    }
+
+    .list-item .type {
+      color: var(--text-dim);
+      font-size: 10px;
+    }
+
+    .list-item .delete-btn {
+      background: none;
+      border: none;
+      color: var(--danger);
+      cursor: pointer;
+      font-size: 14px;
+      padding: 2px 6px;
+    }
+
+    @media (max-width: 980px) {
+      body { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+      .sidebar { border-right: none; border-bottom: 1px solid var(--line); max-height: 45vh; }
+      #elevation-panel { width: calc(100% - 24px); }
+    }
+  </style>
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="title">EASYKROPYVA · TERMINAL v1.4</div>
+
+    <!-- Секція: Розгортання -->
+    <div class="section-title">РОЗГОРТАННЯ</div>
+    <div class="toolbar">
+      <button id="btn-add-home" class="tool-btn" style="border-color: #ff9800; color: #ff9800">+ HOME</button>
+      <button id="btn-add-sensor" class="tool-btn">+ SENSOR</button>
+      <button id="btn-add-relay" class="tool-btn">+ RELAY</button>
+      <button id="btn-add-target" class="tool-btn">+ TARGET</button>
+    </div>
+
+    <!-- Секція: Інструменти -->
+    <div class="section-title">ІНСТРУМЕНТИ</div>
+    <div class="toolbar" style="grid-template-columns: 1fr 1fr;">
+      <button id="btn-range" class="tool-btn">RANGE</button>
+      <button id="btn-clear" class="tool-btn" style="border-color: var(--danger); color: var(--danger)">CLEAR</button>
+    </div>
+
+    <!-- Секція: Статус -->
+    <div class="section-title">СТАТУС</div>
+    <div class="panel compact">
+      <div class="row"><span>COORD</span><span id="coord-display">--</span></div>
+      <div class="row"><span>NODES</span><span id="node-count">0</span></div>
+      <div class="row"><span>TARGETS</span><span id="target-count">0</span></div>
+      <div class="row"><span>HOME</span><span id="home-status">--</span></div>
+      <div class="row"><span>NETWORK</span><span id="network-status">ONLINE</span></div>
+    </div>
+
+    <!-- Секція: Список об'єктів -->
+    <div class="section-title">ОБ'ЄКТИ</div>
+    <div class="panel list-panel">
+      <div id="node-list"></div>
+    </div>
+  </aside>
+
+  <!-- Модальне вікно для TARGET -->
+  <div id="target-modal" class="modal" style="display:none;">
+    <div class="modal-content">
+      <div class="modal-title">Новий TARGET</div>
+      <div class="modal-body">
+        <div class="form-row">
+          <label>Тип цілі:</label>
+          <select id="target-alt-type">
+            <option value="ground">Земля (наземний)</option>
+            <option value="air">Повітря (БПЛА)</option>
+          </select>
+        </div>
+        <div class="form-row" id="altitude-row" style="display:none;">
+          <label>Висота (м):</label>
+          <input type="number" id="target-altitude" value="100" min="0" max="1000">
+        </div>
+        <div class="form-row">
+          <label>Координати:</label>
+          <span id="target-coords">--</span>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button id="btn-target-cancel" class="tool-btn">Скасувати</button>
+        <button id="btn-target-confirm" class="tool-btn" style="border-color: var(--ok); color: var(--ok);">Встановити</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Модальне вікно підтвердження для нод -->
+  <div id="confirm-modal" class="modal" style="display:none;">
+    <div class="modal-content">
+      <div class="modal-title">Підтвердження</div>
+      <div class="modal-body">
+        <p id="confirm-text">Встановити ноду тут?</p>
+        <p id="confirm-coords" style="color: var(--text-dim); font-size: 11px;"></p>
+      </div>
+      <div class="modal-actions">
+        <button id="btn-confirm-cancel" class="tool-btn">Скасувати</button>
+        <button id="btn-confirm-ok" class="tool-btn" style="border-color: var(--ok); color: var(--ok);">Так</button>
+      </div>
+    </div>
+  </div>
+
+  <main class="map-wrap">
+    <div id="map"></div>
+
+    <section id="elevation-panel">
+      <div class="elev-head">
+        <span>ELEVATION PROFILE</span>
+        <button onclick="closeElevation()">CLOSE</button>
+      </div>
+      <div style="display:flex; gap:8px; padding:6px 10px; border-bottom:1px solid var(--line); align-items:center;">
+        <label style="font-size:11px; color:var(--text-dim);">Ціль:</label>
+        <select id="los-target-type" style="background:var(--panel-2); border:1px solid var(--line); color:var(--text); border-radius:4px; font-size:11px; padding:2px 6px;">
+          <option value="ground">Земля</option>
+          <option value="air">Повітря (БПЛА)</option>
+        </select>
+        <input id="los-target-alt" type="number" value="100" min="0" max="1000" style="width:60px; background:var(--panel-2); border:1px solid var(--line); color:var(--text); border-radius:4px; font-size:11px; padding:2px 6px; display:none;">
+        <span id="los-alt-label" style="font-size:11px; color:var(--text-dim); display:none;">м</span>
+        <button id="los-recalc" class="tool-btn" style="margin-left:auto; font-size:11px; padding:2px 8px;">⟳ LOS</button>
+      </div>
+      <div id="elevation-stats"><span>DIST: -</span><span>MAX ALT: -</span></div>
+      <div class="chart-wrap"><canvas id="elevationChart"></canvas></div>
+    </section>
+  </main>
+
+  <script>
+    // =============================================
+    // EasyKropyva - Tactical Terminal v1.3
+    // + Snapping Range & Rubber-band Line
+    // =============================================
+
+    const map = L.map('map', { zoomControl: false }).setView([49.8397, 24.0297], 13);
+
+    // ---- Offline Coordinate Grid (завжди працює) ----
+    const GridLayer = L.GridLayer.extend({
+        createTile: function(coords) {
+            const tile = document.createElement('div');
+            tile.style.width = '100%';
+            tile.style.height = '100%';
+            tile.style.border = '1px solid rgba(255,255,255,0.08)';
+            tile.style.boxSizing = 'border-box';
+
+            const size = this.getTileSize();
+            const label = document.createElement('div');
+            label.style.position = 'absolute';
+            label.style.top = '4px';
+            label.style.left = '4px';
+            label.style.fontSize = '10px';
+            label.style.color = 'rgba(138, 155, 168, 0.5)';
+            label.style.fontFamily = 'monospace';
+
+            const bounds = this._tileCoordsToBounds(coords);
+            const lat = bounds.getNorth().toFixed(3);
+            const lng = bounds.getWest().toFixed(3);
+            label.textContent = `${lat},${lng}`;
+
+            tile.appendChild(label);
+            return tile;
+        }
+    });
+    new GridLayer({ tileSize: 256, opacity: 0.6, zIndex: 0 }).addTo(map);
+
+    // ---- Online Tile Layer (OpenTopoMap) ----
+    let isOnline = true;
+    const tileLayer = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenTopoMap',
+        maxZoom: 17,
+        zIndex: 1
+    }).addTo(map);
+
+    tileLayer.on('tileerror', () => {
+        if (isOnline) {
+            isOnline = false;
+            updateNetworkStatus();
+        }
+    });
+
+    // Перевірка мережі кожні 10 сек
+    setInterval(() => {
+        fetch('https://tile.opentopomap.org/0/0/0.png', { mode: 'no-cors', cache: 'no-store' })
+            .then(() => { if (!isOnline) { isOnline = true; updateNetworkStatus(); } })
+            .catch(() => { if (isOnline) { isOnline = false; updateNetworkStatus(); } });
+    }, 10000);
+
+    function updateNetworkStatus() {
+        const el = document.getElementById('network-status');
+        if (!el) return;
+        if (isOnline) {
+            el.innerText = 'ONLINE';
+            el.style.color = 'var(--ok)';
+        } else {
+            el.innerText = 'OFFLINE';
+            el.style.color = 'var(--danger)';
+        }
+    }
+
+    L.control.zoom({ position: 'topright' }).addTo(map);
+
+    // ---- Icons ----
+    const makeIcon = (color) => L.divIcon({
+        className: 'radar-icon',
+        html: `<div class="radar-ring" style="border-color:${color}"></div><div class="radar-blip" style="background:${color};box-shadow:0 0 12px ${color}"></div>`,
+        iconSize: [20, 20],
+        iconAnchor: [10, 10]
+    });
+
+    const ICONS = {
+        sensor:  makeIcon('#00e676'),
+        relay:   makeIcon('#29b6f6'),
+        gateway: makeIcon('#00e676'),
+        target:  makeIcon('#ff3366')
+    };
+
+    // ---- State ----
+    let nodeMarkers = {};
+    let targetMarkers = {};
+    let placingMode = null;
+    let pendingLatLng = null; // Для модальних вікон
+    let autoCounter = { sensor: 0, relay: 0, target: 0 };
+    let rangePoints = [];
+    let rangeLine = null;
+    let elevationChart = null;
+    let isDrawingRange = false;
+    let homeMarker = null;
+    let homePoint = null; // Для double-click
+    let lastLosPoints = null; // Для перерахунку LOS з іншими параметрами цілі
+
+    // ---- Coordinate Display ----
+    map.on('mousemove', (e) => {
+        const lat = e.latlng.lat.toFixed(5);
+        const lng = e.latlng.lng.toFixed(5);
+        document.getElementById('coord-display').innerText = `${lat}, ${lng}`;
+
+        // Rubber-band effect
+        if (isDrawingRange && rangePoints.length === 1 && rangeLine) {
+            rangeLine.setLatLngs([rangePoints[0], e.latlng]);
+        }
+    });
+
+    // ---- Double-click on HOME to center map ----
+    function setupHomeDoubleClick() {
+        if (homeMarker) {
+            homeMarker.on('dblclick', () => {
+                if (homePoint) {
+                    map.setView([homePoint.lat, homePoint.lng], 15);
+                }
+            });
+        }
+    }
+
+    // ---- Toolbar ----
+    document.getElementById('btn-add-sensor').onclick = () => toggleMode('sensor');
+    document.getElementById('btn-add-relay').onclick = () => toggleMode('relay');
+    document.getElementById('btn-add-target').onclick = () => toggleMode('target');
+    document.getElementById('btn-range').onclick = () => toggleMode('range');
+    document.getElementById('btn-clear').onclick = clearAll;
+    document.getElementById('btn-add-home').onclick = () => toggleMode('home');
+    document.getElementById('btn-add-home').ondblclick = () => {
+        if (homePoint) {
+            map.setView([homePoint.lat, homePoint.lng], 15);
+        } else {
+            alert('HOME ще не встановлено. Спочатку додайте точку HOME.');
+        }
+    };
+
+    // ---- Modal handlers ----
+    document.getElementById('target-alt-type').onchange = (e) => {
+        const altRow = document.getElementById('altitude-row');
+        altRow.style.display = e.target.value === 'air' ? 'flex' : 'none';
+    };
+
+    document.getElementById('btn-target-cancel').onclick = () => {
+        document.getElementById('target-modal').style.display = 'none';
+        pendingLatLng = null;
+        toggleMode(null);
+    };
+
+    document.getElementById('btn-target-confirm').onclick = async () => {
+        if (!pendingLatLng) return;
+        
+        const altType = document.getElementById('target-alt-type').value;
+        const altitude = altType === 'air' ? parseInt(document.getElementById('target-altitude').value) : 0;
+        
+        autoCounter.target++;
+        const name = `TGT-${String(autoCounter.target).padStart(3, '0')}`;
+        
+        await fetch('/api/targets', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name, type: 'FPV', 
+                altitude_type: altType, altitude_m: altitude,
+                confidence: 0.8, 
+                lat: pendingLatLng.lat, lng: pendingLatLng.lng
+            })
+        });
+        
+        document.getElementById('target-modal').style.display = 'none';
+        pendingLatLng = null;
+        toggleMode(null);
+        fetchData();
+    };
+
+    // ---- Confirm modal handlers ----
+    document.getElementById('btn-confirm-cancel').onclick = () => {
+        document.getElementById('confirm-modal').style.display = 'none';
+        pendingLatLng = null;
+    };
+
+    document.getElementById('btn-confirm-ok').onclick = async () => {
+        if (!pendingLatLng || !placingMode) {
+            console.error('btn-confirm-ok: pendingLatLng або placingMode відсутні');
+            return;
+        }
+
+        const mode = placingMode;
+        const lat = pendingLatLng.lat;
+        const lng = pendingLatLng.lng;
+        console.log('btn-confirm-ok: mode=', mode, 'lat=', lat, 'lng=', lng);
+
+        try {
+            if (mode === 'home') {
+                if (homeMarker) map.removeLayer(homeMarker);
+                homePoint = { lat, lng, name: 'HOME-BASE' };
+                homeMarker = L.marker([lat, lng], {
+                    icon: L.divIcon({
+                        className: 'home-marker',
+                        html: '<div style="background:#ff9800;width:16px;height:16px;border-radius:50%;border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.5);"></div>',
+                        iconSize: [22, 22], iconAnchor: [11, 11]
+                    })
+                }).addTo(map).bindPopup('<b>HOME BASE</b><br>Домашня база');
+                setupHomeDoubleClick();
+                await fetch('/api/home', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(homePoint)
+                });
+                updateHomeStatus();
+            } else {
+                autoCounter[mode]++;
+                const prefix = mode === 'sensor' ? 'SN' : 'RL';
+                const name = `${prefix}-${String(autoCounter[mode]).padStart(3, '0')}`;
+                await fetch('/api/nodes', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, type: mode, lat, lng })
+                });
+            }
+        } catch (e) {
+            console.error('btn-confirm-ok помилка:', e);
+            alert('Помилка при збереженні: ' + e.message);
+        }
+
+        // Завжди закриваємо modal
+        document.getElementById('confirm-modal').style.display = 'none';
+        pendingLatLng = null;
+        toggleMode(null);
+        fetchData();
+    };
+
+    function toggleMode(mode) {
+        const prevMode = placingMode;
+        placingMode = (placingMode === mode) ? null : mode;
+        document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+
+        // Не скидати range якщо ми просто вимикаємо режим або це той самий режим
+        if (mode !== 'range' || placingMode !== 'range') {
+            if (prevMode !== 'range') resetRange(); // Скидати тільки при зміні з іншого режиму
+        }
+
+        if (placingMode) {
+            const btnId = (mode === 'range') ? 'btn-range' : 'btn-add-' + mode;
+            document.getElementById(btnId).classList.add('active');
+            map.getContainer().style.cursor = 'crosshair';
+        } else {
+            map.getContainer().style.cursor = '';
+        }
+    }
+
+    // ---- Custom Context Menu ----
+    let contextMenu = null;
+
+    document.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+
+        // Видалити старе меню
+        if (contextMenu) {
+            contextMenu.remove();
+        }
+
+        // Створити нове меню
+        contextMenu = document.createElement('div');
+        contextMenu.style.position = 'fixed';
+        contextMenu.style.left = e.clientX + 'px';
+        contextMenu.style.top = e.clientY + 'px';
+        contextMenu.style.background = 'rgba(14, 23, 31, 0.95)';
+        contextMenu.style.border = '1px solid var(--line)';
+        contextMenu.style.borderRadius = '6px';
+        contextMenu.style.padding = '4px 0';
+        contextMenu.style.zIndex = '10000';
+        contextMenu.style.minWidth = '140px';
+        contextMenu.style.fontSize = '12px';
+
+        const menuItems = [
+            { label: '🚀 TARGET', action: () => toggleMode('target') },
+            { label: '📡 SENSOR', action: () => toggleMode('sensor') },
+            { label: '🔗 RELAY', action: () => toggleMode('relay') },
+            { label: '🏠 HOME', action: () => toggleMode('home') },
+            { label: '📏 RANGE', action: () => toggleMode('range') },
+            { divider: true },
+            { label: '🗑️ CLEAR ALL', action: clearAll }
+        ];
+
+        menuItems.forEach(item => {
+            if (item.divider) {
+                const divider = document.createElement('div');
+                divider.style.height = '1px';
+                divider.style.background = 'var(--line)';
+                divider.style.margin = '4px 0';
+                contextMenu.appendChild(divider);
+                return;
+            }
+
+            const menuItem = document.createElement('div');
+            menuItem.textContent = item.label;
+            menuItem.style.padding = '6px 12px';
+            menuItem.style.cursor = 'pointer';
+            menuItem.style.color = 'var(--text)';
+
+            menuItem.addEventListener('mouseenter', () => {
+                menuItem.style.background = 'var(--panel-2)';
+            });
+
+            menuItem.addEventListener('mouseleave', () => {
+                menuItem.style.background = 'transparent';
+            });
+
+            menuItem.addEventListener('click', () => {
+                item.action();
+                contextMenu.remove();
+                contextMenu = null;
+            });
+
+            contextMenu.appendChild(menuItem);
+        });
+
+        document.body.appendChild(contextMenu);
+
+        // Закрити меню при кліку поза ним
+        const closeMenu = (e) => {
+            if (!contextMenu.contains(e.target)) {
+                contextMenu.remove();
+                contextMenu = null;
+                document.removeEventListener('click', closeMenu);
+            }
+        };
+        setTimeout(() => document.addEventListener('click', closeMenu), 10);
+    });
+
+    // ---- Map Click ----
+    map.on('click', async (e) => {
+        if (!placingMode) return;
+
+        if (placingMode === 'range') {
+            handleRangeClick(e.latlng);
+            return;
+        }
+
+        const lat = e.latlng.lat;
+        const lng = e.latlng.lng;
+        pendingLatLng = { lat, lng };
+
+        // TARGET - показуємо модальне вікно з вибором висоти
+        if (placingMode === 'target') {
+            document.getElementById('target-coords').innerText = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+            document.getElementById('target-modal').style.display = 'flex';
+            return;
+        }
+
+        // HOME, SENSOR, RELAY - показуємо підтвердження
+        const modeNames = { home: 'HOME', sensor: 'SENSOR', relay: 'RELAY' };
+        document.getElementById('confirm-text').innerText = `Встановити ${modeNames[placingMode]} тут?`;
+        document.getElementById('confirm-coords').innerText = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+        document.getElementById('confirm-modal').style.display = 'flex';
+    });
+
+    // Load home point on startup
+    async function loadHome() {
+        try {
+            const res = await fetch('/api/home');
+            if (res.ok) {
+                const home = await res.json();
+                if (home.lat && home.lng) {
+                    homePoint = { lat: home.lat, lng: home.lng, name: home.name };
+                    homeMarker = L.marker([home.lat, home.lng], {
+                        icon: L.divIcon({
+                            className: 'home-marker',
+                            html: '<div style="background:#ff9800;width:16px;height:16px;border-radius:50%;border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.5);"></div>',
+                            iconSize: [22, 22],
+                            iconAnchor: [11, 11]
+                        })
+                    }).addTo(map).bindPopup(`<b>HOME BASE</b><br>${home.name || 'Домашня база'}<br><small>Двічі клікніть для центрування</small>`);
+                    setupHomeDoubleClick();
+                    updateHomeStatus();
+                }
+            }
+        } catch (e) { console.log('No home point set'); }
+    }
+
+    // Update HOME status display
+    function updateHomeStatus() {
+        const statusEl = document.getElementById('home-status');
+        if (homePoint) {
+            statusEl.innerText = 'ВСТАНОВЛЕНО';
+            statusEl.style.color = 'var(--ok)';
+        } else {
+            statusEl.innerText = '--';
+            statusEl.style.color = 'var(--text-dim)';
+        }
+    }
+
+    // ---- Range / Elevation Logic ----
+    function handleRangeClick(latlng) {
+        if (!isDrawingRange) {
+            // Start first point
+            isDrawingRange = true;
+            rangePoints = [latlng];
+            if (rangeLine) map.removeLayer(rangeLine);
+            rangeLine = L.polyline([latlng, latlng], {
+                color: '#00e676',
+                weight: 3,
+                dashArray: '5, 10',
+                opacity: 0.7
+            }).addTo(map);
+        } else {
+            // Finalize second point
+            isDrawingRange = false;
+            rangePoints.push(latlng);
+            rangeLine.setLatLngs(rangePoints);
+            rangeLine.setStyle({dashArray: null, opacity: 1});
+            showElevation(rangePoints[0], rangePoints[1]);
+        }
+    }
+
+    function resetRange() {
+        isDrawingRange = false;
+        rangePoints = [];
+        if (rangeLine) { map.removeLayer(rangeLine); rangeLine = null; }
+        document.getElementById('elevation-panel').style.display = 'none';
+    }
+
+    function closeElevation() {
+        resetRange();
+        toggleMode(null);
+    }
+
+    // Retry fetch з декількома спробами
+    async function fetchWithRetry(url, options = {}, maxRetries = 3) {
+        for (let i = 0; i < maxRetries; i++) {
+            try {
+                const res = await fetch(url, options);
+                if (res.ok) return res;
+                if (res.status === 504 && i < maxRetries - 1) {
+                    console.log(`Retry ${i + 1}/${maxRetries} after 504...`);
+                    await new Promise(r => setTimeout(r, 1500 * (i + 1)));
+                    continue;
+                }
+                return res;
+            } catch (e) {
+                if (i === maxRetries - 1) throw e;
+                await new Promise(r => setTimeout(r, 1500 * (i + 1)));
+            }
+        }
+    }
+
+    async function showElevation(p1, p2) {
+        lastLosPoints = [p1, p2];
+        const panel = document.getElementById('elevation-panel');
+        panel.style.display = 'flex';
+        document.getElementById('elevation-stats').innerHTML = '<span style="color:#8a9ba8">Завантаження даних...</span>';
+
+        const samples = 30;
+        const coords = [];
+        for (let i = 0; i <= samples; i++) {
+            const lat = p1.lat + (p2.lat - p1.lat) * (i / samples);
+            const lng = p1.lng + (p2.lng - p1.lng) * (i / samples);
+            coords.push(`${lat},${lng}`);
+        }
+
+        let elevations = null;
+        let elevData = null;
+
+        try {
+            // Fetch elevation data з retry
+            console.log('Fetching elevation data...');
+            const elevRes = await fetchWithRetry(`https://api.open-elevation.com/api/v1/lookup?locations=${coords.join('|')}`, {}, 3);
+            
+            if (elevRes.ok) {
+                elevData = await elevRes.json();
+                if (elevData.results && elevData.results.length > 0) {
+                    elevations = elevData.results.map(r => r.elevation);
+                }
+            }
+        } catch (e) {
+            console.warn('Elevation API failed:', e.message);
+        }
+
+        const distKm = p1.distanceTo(p2) / 1000;
+        const dist = distKm.toFixed(2);
+
+        // Отримуємо параметри цілі з UI
+        const targetType = document.getElementById('los-target-type').value;
+        const targetAlt = parseFloat(document.getElementById('los-target-alt').value) || 0;
+
+        // Завжди робимо LOS аналіз через свій бекенд
+        try {
+            console.log('Fetching LOS analysis...');
+            const losRes = await fetchWithRetry('/api/los', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    lat1: p1.lat, lng1: p1.lng,
+                    lat2: p2.lat, lng2: p2.lng,
+                    base_height_a: 2.0, base_height_b: 2.0, samples: samples,
+                    target_type: targetType,
+                    target_altitude_m: targetAlt
+                })
+            }, 2);
+            
+            if (!losRes.ok) throw new Error(`LOS API error: ${losRes.status}`);
+            const losData = await losRes.json();
+
+            // Використовуємо дані рельєфу з LOS якщо open-elevation недоступний
+            if (!elevations && losData['висота_початку_рельєф']) {
+                // Генеруємо приблизний профіль на основі LOS даних
+                const h1 = losData['висота_початку_рельєф'];
+                const h2 = losData['висота_кінця_рельєф'];
+                elevations = [];
+                for (let i = 0; i <= samples; i++) {
+                    elevations.push(h1 + (h2 - h1) * (i / samples));
+                }
+            }
+
+            // Якщо є дані рельєфу — показуємо графік
+            if (elevations) {
+                const labels = elevations.map((_, i) => `${((i/samples) * distKm).toFixed(1)}km`);
+                renderElevationChart(labels, elevations);
+            } else {
+                renderElevationChart(['0km', '1km'], [0, 0]);
+            }
+
+            const maxAlt = elevations ? Math.max(...elevations) : '--';
+            const losStatus = losData['пряма_видимість'];
+            const requiredLift = losData['необхідний_підйом_м'];
+            const obstructionPercent = losData['відстань_до_перешкоди_відсоток'];
+            const obstructionHeight = losData['висота_перешкоди'];
+            const distanceKm = losData['відстань_км'] || dist;
+            
+            // Інфо про тип цілі
+            const targetTypeLabel = targetType === 'air' ? `🚁 БПЛА (+${targetAlt}м)` : '🚗 Земля';
+            let losHtml = `<span>ВІДСТАНЬ: ${distanceKm} км</span><span>МАКС ВИСОТА: ${maxAlt} м</span>`;
+            losHtml += `<br><span style="color:var(--text-dim); font-size:10px">ЦІЛЬ: ${targetTypeLabel}</span>`;
+            
+            if (losStatus === true || losStatus === 'true') {
+                losHtml += `<br><span style="color:#00e676">✓ ПРЯМА ВИДИМІСТЬ: Є</span>`;
+            } else {
+                losHtml += `<br><span style="color:#ff3366">✗ ПРЯМА ВИДИМІСТЬ: ЗАБЛОКОВАНО</span>`;
+                if (requiredLift > 0) {
+                    losHtml += `<br><span style="color:#ffaa00">⚠ Необхідний підйом: +${requiredLift} м</span>`;
+                }
+                if (obstructionPercent) {
+                    losHtml += `<br><span style="color:#8a9ba8">Перешкода на: ${obstructionPercent}% (${obstructionHeight} м)</span>`;
+                }
+            }
+            
+            if (!elevData || losData['синтетичні_дані']) {
+                losHtml += `<br><span style="color:#ffaa00; font-size:10px">⚠ Синтетичні дані рельєфу</span>`;
+            }
+            
+            document.getElementById('elevation-stats').innerHTML = losHtml;
+            console.log('Profile loaded successfully');
+
+        } catch (err) {
+            console.error('LOS API failed:', err);
+            document.getElementById('elevation-stats').innerHTML = `<span style="color:#ff3366">Помилка LOS: ${err.message}</span>`;
+            renderElevationChart(['0km', '1km'], [0, 0]);
+        }
+    }
+
+    function renderElevationChart(labels, data) {
+        const ctx = document.getElementById('elevationChart').getContext('2d');
+        if (elevationChart) elevationChart.destroy();
+
+        elevationChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Terrain Elevation (m)',
+                    data: data,
+                    borderColor: '#00e676',
+                    backgroundColor: 'rgba(0, 230, 118, 0.1)',
+                    fill: true,
+                    tension: 0.4,
+                    pointRadius: 2,
+                    pointBackgroundColor: '#00e676'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { ticks: { color: '#8a9ba8', font: { size: 10 } }, grid: { display: false } },
+                    y: { ticks: { color: '#8a9ba8', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' } }
+                }
+            }
+        });
+    }
+
+    // ---- Clear All ----
+    async function clearAll() {
+        try {
+            console.log('Clearing all...');
+            Object.values(nodeMarkers).forEach(m => map.removeLayer(m));
+            Object.values(targetMarkers).forEach(m => map.removeLayer(m));
+            if (homeMarker) { map.removeLayer(homeMarker); homeMarker = null; }
+            homePoint = null;
+            updateHomeStatus();
+            nodeMarkers = {};
+            targetMarkers = {};
+            autoCounter = { sensor: 0, relay: 0, target: 0 };
+            resetRange();
+            
+            // Clear home on server
+            await fetch('/api/home', { method: 'DELETE' });
+            
+            const res = await fetch('/api/clear', { 
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            console.log('Clear API response:', res.status);
+            
+            fetchData();
+            console.log('Clear completed');
+        } catch (err) {
+            console.error('Clear failed:', err);
+            alert('Clear failed: ' + err.message);
+        }
+    }
+
+    // ---- Delete Single Item ----
+    async function deleteNode(id) {
+        await fetch(`/api/nodes/${id}`, { method: 'DELETE' });
+        fetchData();
+    }
+    async function deleteTarget(id) {
+        await fetch(`/api/targets/${id}`, { method: 'DELETE' });
+        fetchData();
+    }
+
+    // ---- Fetch & Render ----
+    async function fetchData() {
+        try {
+            const [nr, tr] = await Promise.all([fetch('/api/nodes'), fetch('/api/targets')]);
+            const nodes = await nr.json();
+            const targets = await tr.json();
+
+            document.getElementById('node-count').innerText = nodes.length;
+            document.getElementById('target-count').innerText = targets.length;
+
+            const list = document.getElementById('node-list');
+            list.innerHTML = '';
+
+            // Render NODES
+            const activeNodeIds = new Set();
+            nodes.forEach(n => {
+                activeNodeIds.add(n.id);
+                if (!nodeMarkers[n.id] && n.lat && n.lng) {
+                    const m = L.marker([n.lat, n.lng], { icon: ICONS[n.type] || ICONS.sensor }).addTo(map);
+                    m.on('click', (e) => {
+                        if (placingMode === 'range') {
+                            L.DomEvent.stopPropagation(e);
+                            handleRangeClick(m.getLatLng());
+                        }
+                    });
+                    m.bindPopup(`<b>${n.name}</b><br/>Тип: ${n.type}<br/><a href="#" onclick="deleteNode(${n.id});return false;" style="color:#ff3366">ВИДАЛИТИ</a>`);
+                    m.on('contextmenu', () => deleteNode(n.id));
+                    nodeMarkers[n.id] = m;
+                }
+                
+                // List item для панелі ліворуч
+                const div = document.createElement('div');
+                div.className = 'list-item';
+                const typeColor = n.type === 'sensor' ? '#00e676' : '#29b6f6';
+                div.innerHTML = `
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <div style="width:8px;height:8px;border-radius:50%;background:${typeColor};"></div>
+                        <div>
+                            <div class="name">${n.name}</div>
+                            <div class="type">${(n.type||'').toUpperCase()} • ${n.battery||100}%</div>
+                        </div>
+                    </div>
+                    <button class="delete-btn" onclick="deleteNode(${n.id})">×</button>
+                `;
+                div.onclick = (e) => { if (!e.target.classList.contains('delete-btn')) map.flyTo([n.lat, n.lng], 15); };
+                list.appendChild(div);
+            });
+
+            Object.keys(nodeMarkers).forEach(id => {
+                if (!activeNodeIds.has(Number(id))) { map.removeLayer(nodeMarkers[id]); delete nodeMarkers[id]; }
+            });
+
+            // Render TARGETS
+            const activeTargetIds = new Set();
+            targets.forEach(t => {
+                activeTargetIds.add(t.id);
+                if (!targetMarkers[t.id] && t.lat && t.lng) {
+                    const m = L.marker([t.lat, t.lng], { icon: ICONS.target }).addTo(map);
+                    m.on('click', (e) => {
+                        if (placingMode === 'range') {
+                            L.DomEvent.stopPropagation(e);
+                            handleRangeClick(m.getLatLng());
+                        }
+                    });
+                    const altInfo = t.altitude_type === 'air' ? `<br/>Висота: ${t.altitude_m}м` : '';
+                    m.bindPopup(`<b>${t.name}</b>${altInfo}<br/><a href="#" onclick="deleteTarget(${t.id});return false;" style="color:#ff3366">ВИДАЛИТИ</a>`);
+                    m.on('contextmenu', () => deleteTarget(t.id));
+                    targetMarkers[t.id] = m;
+                }
+                
+                // List item для TARGET
+                const div = document.createElement('div');
+                div.className = 'list-item';
+                const altLabel = t.altitude_type === 'air' ? `🚁 ${t.altitude_m}м` : '🚗 ЗЕМЛЯ';
+                div.innerHTML = `
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <div style="width:8px;height:8px;border-radius:50%;background:#ff3366;"></div>
+                        <div>
+                            <div class="name">${t.name}</div>
+                            <div class="type">${altLabel}</div>
+                        </div>
+                    </div>
+                    <button class="delete-btn" onclick="deleteTarget(${t.id})">×</button>
+                `;
+                div.onclick = (e) => { if (!e.target.classList.contains('delete-btn')) map.flyTo([t.lat, t.lng], 15); };
+                list.appendChild(div);
+            });
+            Object.keys(targetMarkers).forEach(id => {
+                if (!activeTargetIds.has(Number(id))) { map.removeLayer(targetMarkers[id]); delete targetMarkers[id]; }
+            });
+
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    // ---- LOS Target Type UI Handlers ----
+    document.getElementById('los-target-type').addEventListener('change', (e) => {
+        const altInput = document.getElementById('los-target-alt');
+        const altLabel = document.getElementById('los-alt-label');
+        if (e.target.value === 'air') {
+            altInput.style.display = 'inline-block';
+            altLabel.style.display = 'inline';
+        } else {
+            altInput.style.display = 'none';
+            altLabel.style.display = 'none';
+        }
+    });
+
+    document.getElementById('los-recalc').addEventListener('click', () => {
+        if (lastLosPoints && lastLosPoints.length === 2) {
+            showElevation(lastLosPoints[0], lastLosPoints[1]);
+        }
+    });
+
+    setInterval(fetchData, 10000);
+    fetchData();
+
+    window.deleteNode = deleteNode;
+    window.deleteTarget = deleteTarget;
+    window.closeElevation = closeElevation;
+  </script>
+</body>
+</html>
