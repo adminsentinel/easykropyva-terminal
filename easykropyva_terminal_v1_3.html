@@ -188,8 +188,8 @@
       position: absolute;
       right: 12px;
       bottom: 12px;
-      width: 420px;
-      height: 230px;
+      width: 480px;
+      height: 320px;
       background: rgba(14, 23, 31, 0.96);
       border: 1px solid var(--line);
       border-radius: 10px;
@@ -361,6 +361,11 @@
       <button id="btn-add-relay" class="tool-btn">+ RELAY</button>
       <button id="btn-add-target" class="tool-btn">+ TARGET</button>
     </div>
+    <div class="toolbar" style="margin-top:8px; border-top:1px solid var(--line); padding-top:8px;">
+      <button class="tool-btn" onclick="setMode('range')" title="Measurement / Elevation Profile">RANGE/LOS</button>
+      <button class="tool-btn" id="mesh-toggle-btn" onclick="toggleMesh()" title="Mesh Network View">MESH: OFF</button>
+      <button class="tool-btn" onclick="clearAll()" style="color:#ff3366">CLEAR ALL</button>
+    </div>
 
     <!-- Секція: Інструменти -->
     <div class="section-title">ІНСТРУМЕНТИ</div>
@@ -469,8 +474,7 @@
 
   <script>
     // =============================================
-    // EasyKropyva - Tactical Terminal v1.3
-    // + Snapping Range & Rubber-band Line
+    // EasyKropyva - Tactical Terminal v1.4
     // =============================================
 
     const map = L.map('map', { zoomControl: false }).setView([48.8894, 36.3197], 13);
@@ -583,6 +587,52 @@
 
     L.control.zoom({ position: 'topright' }).addTo(map);
 
+    let meshGroup = L.layerGroup().addTo(map);
+    let meshActive = false;
+
+    function toggleMesh() {
+        meshActive = !meshActive;
+        const btn = document.getElementById('mesh-toggle-btn');
+        btn.innerText = meshActive ? 'MESH: ON' : 'MESH: OFF';
+        btn.style.borderColor = meshActive ? 'var(--ok)' : 'var(--line)';
+        if (!meshActive) {
+            meshGroup.clearLayers();
+        } else {
+            updateMesh();
+        }
+    }
+
+    function updateMesh() {
+        if (!meshActive) return;
+        meshGroup.clearLayers();
+        const nodes = Object.values(nodeMarkers);
+        for (let i = 0; i < nodes.length; i++) {
+            for (let j = i + 1; j < nodes.length; j++) {
+                const p1 = nodes[i].getLatLng();
+                const p2 = nodes[j].getLatLng();
+                const dist = map.distance(p1, p2) / 1000;
+                
+                // Візуалізація зв'язку (поки що за дистанцією, зелена якщо < 5км)
+                const color = dist < 5 ? '#00e676' : '#ffaa00';
+                const opacity = dist < 5 ? 0.6 : 0.2;
+                
+                const poly = L.polyline([p1, p2], {
+                    color: color,
+                    weight: 2,
+                    opacity: opacity,
+                    dashArray: dist < 5 ? null : '5, 10',
+                    interactive: true
+                }).addTo(meshGroup);
+                
+                poly.on('click', (e) => {
+                    L.DomEvent.stopPropagation(e);
+                    showElevation(p1, p2);
+                });
+                poly.bindTooltip(`Link: ${dist.toFixed(1)} km`, { sticky: true });
+            }
+        }
+    }
+
     // ---- Icons ----
     const makeIcon = (color) => L.divIcon({
         className: 'radar-icon',
@@ -612,6 +662,7 @@
     let homePoint = null; // Для double-click
     let lastLosPoints = null; // Для перерахунку LOS з іншими параметрами цілі
     let elevationPoints = [];
+    let elevationMarkers = L.layerGroup().addTo(map);
     let hoverMarker = null;
 
     // ---- Coordinate Display ----
@@ -937,6 +988,7 @@
         isDrawingRange = false;
         rangePoints = [];
         if (rangeLine) { map.removeLayer(rangeLine); rangeLine = null; }
+        elevationMarkers.clearLayers();
         if (hoverMarker) { map.removeLayer(hoverMarker); hoverMarker = null; }
         elevationPoints = [];
         document.getElementById('elevation-panel').style.display = 'none';
@@ -981,6 +1033,25 @@
             coords.push(`${lat},${lng}`);
             elevationPoints.push([lat, lng]);
         }
+
+        // Малюємо лінію
+        if (rangePolyline) map.removeLayer(rangePolyline);
+        rangePolyline = L.polyline([p1, p2], { color: '#29b6f6', weight: 3, dashArray: '5, 5' }).addTo(map);
+
+        // Малюємо точки на лінії для наочності
+        elevationMarkers.clearLayers();
+        elevationPoints.forEach((pt, idx) => {
+            if (idx % 2 === 0) {
+                L.circleMarker(pt, {
+                    radius: 2,
+                    color: '#29b6f6',
+                    fillColor: '#fff',
+                    fillOpacity: 0.8,
+                    weight: 1,
+                    interactive: false
+                }).addTo(elevationMarkers);
+            }
+        });
 
         let elevations = null;
         let elevData = null;
@@ -1057,11 +1128,13 @@
             const obstructionHeight = losData['висота_перешкоди'];
             const distanceKm = losData['відстань_км'] || dist;
             
-            // Інфо про тип цілі
-            const targetTypeLabel = targetType === 'air' ? `🚁 БПЛА (+${targetAlt}м)` : `🚗 Земля (${targetAlt}м)`;
+            // Інфо про висоти та ціль
+            const sourceH = document.getElementById('los-source-alt').value;
+            const targetTypeLabel = targetType === 'air' ? `🚁 Повітряна (+${targetAlt}м)` : `🚗 Наземна (${targetAlt}м)`;
             const fresnelMax = losData['макс_зона_френеля_м'] ? ` | Fresnel(Max): ${losData['макс_зона_френеля_м']}м` : '';
+            
             let losHtml = `<span>ВІДСТАНЬ: ${distanceKm} км</span><span>МАКС ВИСОТА: ${maxAlt} м</span>`;
-            losHtml += `<br><span style="color:var(--text-dim); font-size:10px">ЦІЛЬ: ${targetTypeLabel} | ${freqMhz} МГц${fresnelMax}</span>`;
+            losHtml += `<br><span style="color:var(--text-dim); font-size:10px">А: ${sourceH}м | Б: ${targetTypeLabel} | ${freqMhz} МГц${fresnelMax}</span>`;
             
             if (losStatus === true || losStatus === 'true') {
                 losHtml += `<br><span style="color:#00e676">✓ ПРЯМА ВИДИМІСТЬ: Є</span>`;
@@ -1080,16 +1153,51 @@
             }
             
             document.getElementById('elevation-stats').innerHTML = losHtml;
+            
+            // Візуалізація на графіку: рельєф + лінія LOS + Зона Френеля
+            const terrainData = losData['рельєф_м'] || elevationPoints.map(p => p.alt);
+            const n = terrainData.length;
+            const hA = losData['висота_антени_початок'];
+            const hB = losData['висота_антени_кінець'];
+            const D = distanceKm;
+            const freqGhz = freqMhz / 1000;
+            
+            const losLine = [];
+            const fresnelBottom = [];
+
+            for (let i = 0; i < n; i++) {
+                const f = i / (n - 1);
+                const beamH = hA + f * (hB - hA);
+                losLine.push(beamH);
+                
+                // Fresnel 60% clearance
+                if (D > 0 && freqGhz > 0 && i > 0 && i < n-1) {
+                    const d1 = f * D;
+                    const d2 = (1 - f) * D;
+                    const r = 17.32 * Math.sqrt((d1 * d2) / (freqGhz * D));
+                    fresnelBottom.push(beamH - 0.6 * r);
+                } else {
+                    fresnelBottom.push(beamH);
+                }
+            }
+
+            renderElevationChart(
+                elevationPoints.map((p, i) => i === 0 ? 'A' : (i === n-1 ? 'B' : `${(i*D/(n-1)).toFixed(1)}km`)),
+                terrainData,
+                losLine,
+                fresnelBottom,
+                losStatus === true || losStatus === 'true'
+            );
             console.log('Profile loaded successfully');
 
         } catch (err) {
             console.error('LOS API failed:', err);
             document.getElementById('elevation-stats').innerHTML = `<span style="color:#ff3366">Помилка LOS: ${err.message}</span>`;
-            renderElevationChart(['0km', '1km'], [0, 0]);
+            renderElevationChart(['A', 'B'], [0, 0], [0, 0], false);
         }
     }
 
-    function renderElevationChart(labels, data) {
+    function renderElevationChart(labels, terrainData, losData, fresnelData, isVisible) {
         const ctx = document.getElementById('elevationChart').getContext('2d');
         if (elevationChart) elevationChart.destroy();
 
@@ -1097,18 +1205,37 @@
             type: 'line',
             data: {
                 labels: labels,
-                datasets: [{
-                    label: 'Terrain Elevation (m)',
-                    data: data,
-                    borderColor: '#00e676',
-                    backgroundColor: 'rgba(0, 230, 118, 0.1)',
-                    fill: true,
-                    tension: 0.4,
-                    pointRadius: 2,
-                    pointBackgroundColor: '#00e676',
-                    pointHoverRadius: 5,
-                    pointHoverBackgroundColor: '#fff'
-                }]
+                datasets: [
+                    {
+                        label: 'LOS Beam',
+                        data: losData,
+                        borderColor: isVisible ? '#00e676' : '#ff3366',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        fill: false,
+                        zIndex: 10
+                    },
+                    {
+                        label: 'Fresnel 60%',
+                        data: fresnelData,
+                        borderColor: 'rgba(255, 255, 255, 0.2)',
+                        borderDash: [5, 5],
+                        borderWidth: 1,
+                        pointRadius: 0,
+                        fill: false
+                    },
+                    {
+                        label: 'Terrain',
+                        data: terrainData,
+                        borderColor: '#8a9ba8',
+                        backgroundColor: 'rgba(31, 45, 58, 0.8)',
+                        fill: true,
+                        tension: 0.1,
+                        pointRadius: 3,
+                        pointHoverRadius: 6,
+                        pointHoverBackgroundColor: '#fff'
+                    }
+                ]
             },
             options: {
                 responsive: true,
@@ -1129,6 +1256,7 @@
                                 hoverMarker.setLatLng(elevationPoints[index]);
                             }
                         }
+                    } else {
                         if (hoverMarker) {
                             map.removeLayer(hoverMarker);
                             hoverMarker = null;
@@ -1281,6 +1409,8 @@
             Object.keys(targetMarkers).forEach(id => {
                 if (!activeTargetIds.has(Number(id))) { map.removeLayer(targetMarkers[id]); delete targetMarkers[id]; }
             });
+
+            if (meshActive) updateMesh();
 
         } catch (e) {
             console.error(e);
