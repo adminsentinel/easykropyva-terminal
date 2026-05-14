@@ -363,6 +363,13 @@
       <button id="btn-clear" class="tool-btn" style="border-color: var(--danger); color: var(--danger)">CLEAR</button>
     </div>
 
+    <!-- Секція: Карта -->
+    <div class="section-title">КАРТА</div>
+    <div class="toolbar" style="grid-template-columns: 1fr 1fr;">
+      <button id="btn-map-topo" class="tool-btn active">TOPO</button>
+      <button id="btn-map-sat" class="tool-btn">SATELLITE</button>
+    </div>
+
     <!-- Секція: Статус -->
     <div class="section-title">СТАТУС</div>
     <div class="panel compact">
@@ -483,15 +490,43 @@
     });
     new GridLayer({ tileSize: 256, opacity: 0.6, zIndex: 0 }).addTo(map);
 
-    // ---- Online Tile Layer (OpenTopoMap) ----
-    let isOnline = true;
-    const tileLayer = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+    // ---- Map Layers ----
+    const topoLayer = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; OpenTopoMap',
         maxZoom: 17,
         zIndex: 1
-    }).addTo(map);
+    });
 
-    tileLayer.on('tileerror', () => {
+    const satLayer = L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+        attribution: '&copy; Google Satellite',
+        maxZoom: 20,
+        zIndex: 1
+    });
+
+    topoLayer.addTo(map);
+    let activeLayer = topoLayer;
+
+    function switchMap(type) {
+        if (type === 'topo') {
+            map.removeLayer(satLayer);
+            topoLayer.addTo(map);
+            activeLayer = topoLayer;
+            document.getElementById('btn-map-topo').classList.add('active');
+            document.getElementById('btn-map-sat').classList.remove('active');
+        } else {
+            map.removeLayer(topoLayer);
+            satLayer.addTo(map);
+            activeLayer = satLayer;
+            document.getElementById('btn-map-sat').classList.add('active');
+            document.getElementById('btn-map-topo').classList.remove('active');
+        }
+    }
+
+    document.getElementById('btn-map-topo').onclick = () => switchMap('topo');
+    document.getElementById('btn-map-sat').onclick = () => switchMap('sat');
+
+    let isOnline = true;
+    topoLayer.on('tileerror', () => {
         if (isOnline) {
             isOnline = false;
             updateNetworkStatus();
