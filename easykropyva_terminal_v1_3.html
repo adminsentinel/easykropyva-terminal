@@ -601,28 +601,44 @@
         }
     }
 
-    function updateMesh() {
+    async function updateMesh() {
         if (!meshActive) return;
         meshGroup.clearLayers();
-        const nodes = Object.values(nodeMarkers).map(m => m.tactical).filter(n => n && n.mesh_active);
         
-        for (let i = 0; i < nodes.length; i++) {
-            for (let j = i + 1; j < nodes.length; j++) {
-                const n1 = nodes[i];
-                const n2 = nodes[j];
-                const p1 = L.latLng(n1.lat, n1.lng);
-                const p2 = L.latLng(n2.lat, n2.lng);
-                const dist = map.distance(p1, p2) / 1000;
+        try {
+            const btn = document.getElementById('mesh-toggle-btn');
+            btn.innerText = 'MESH: CALC...';
+            
+            const res = await fetch('/api/mesh_topology');
+            const topology = await res.json();
+            
+            // Відновлюємо іконки до стандартних перед застосуванням майстер-статусу
+            Object.keys(nodeMarkers).forEach(id => {
+                const m = nodeMarkers[id];
+                if (m.tactical_type) {
+                    m.setIcon(ICONS[m.tactical_type] || ICONS.sensor);
+                }
+            });
+
+            // Малюємо лінки
+            topology.links.forEach(link => {
+                const n1 = nodeMarkers[link.source];
+                const n2 = nodeMarkers[link.target];
+                if (!n1 || !n2) return;
                 
-                // Візуалізація зв'язку (поки що за дистанцією, зелена якщо < 5км)
-                const color = dist < 5 ? '#00e676' : '#ffaa00';
-                const opacity = dist < 5 ? 0.6 : 0.2;
+                const p1 = n1.getLatLng();
+                const p2 = n2.getLatLng();
+                
+                // Якщо є LOS, зелена лінія. Якщо ні - червона пунктирна.
+                const color = link.has_los ? '#00e676' : '#ff3366';
+                const opacity = link.has_los ? 0.7 : 0.3;
+                const dash = link.has_los ? null : '5, 10';
                 
                 const poly = L.polyline([p1, p2], {
                     color: color,
-                    weight: 2,
+                    weight: link.has_los ? 3 : 2,
                     opacity: opacity,
-                    dashArray: dist < 5 ? null : '5, 10',
+                    dashArray: dash,
                     interactive: true
                 }).addTo(meshGroup);
                 
@@ -630,8 +646,27 @@
                     L.DomEvent.stopPropagation(e);
                     showElevation(p1, p2);
                 });
-                poly.bindTooltip(`Link: ${dist.toFixed(1)} km`, { sticky: true });
-            }
+                const losText = link.has_los ? 'OK' : 'BLOCKED';
+                poly.bindTooltip(`Link: ${link.distance_m}m | LOS: ${losText}`, { sticky: true });
+            });
+            
+            // Підсвічуємо Master ноди
+            topology.masters.forEach(masterId => {
+                const m = nodeMarkers[masterId];
+                if (m) {
+                    m.setIcon(L.divIcon({
+                        className: 'radar-icon',
+                        html: `<div class="radar-ring" style="border-color:#ffd700; width:30px; height:30px; left:-5px; top:-5px;"></div><div class="radar-blip" style="background:#ffd700;box-shadow:0 0 16px #ffd700"></div>`,
+                        iconSize: [20, 20], iconAnchor: [10, 10]
+                    }));
+                }
+            });
+            
+            btn.innerText = 'MESH: ON';
+            btn.style.borderColor = 'var(--ok)';
+        } catch (e) {
+            console.error('Mesh topology error:', e);
+            document.getElementById('mesh-toggle-btn').innerText = 'MESH: ERR';
         }
     }
 
@@ -796,8 +831,21 @@
         // Завжди закриваємо modal
         document.getElementById('confirm-modal').style.display = 'none';
         pendingLatLng = null;
+        const savedMode = placingMode;
         toggleMode(null);
-        fetchData();
+        
+        await fetchData();
+        
+        // Автоматично відкриваємо попап щойно доданої ноди (остання додана в словнику)
+        if (savedMode === 'sensor' || savedMode === 'relay') {
+            const nodeIds = Object.keys(nodeMarkers).map(Number);
+            if (nodeIds.length > 0) {
+                const latestId = Math.max(...nodeIds);
+                if (nodeMarkers[latestId]) {
+                    nodeMarkers[latestId].openPopup();
+                }
+            }
+        }
     };
 
     function toggleMode(mode) {
@@ -1385,7 +1433,11 @@
                         </div>
                     `;
                     m.bindPopup(popupContent, { maxWidth: 220, className: 'tactical-popup' });
+                    m.tactical_type = n.type; // Зберігаємо тип для скидання іконки
                     nodeMarkers[n.id] = m;
+                } else if (nodeMarkers[n.id]) {
+                    // Якщо маркер вже є, просто оновлюємо вміст попапу
+                    nodeMarkers[n.id].tactical_type = n.type;
                 }
                 
                 // List item для панелі ліворуч
