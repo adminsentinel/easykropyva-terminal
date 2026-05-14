@@ -498,6 +498,103 @@ def api_los():
         return jsonify({'помилка': f'Помилка розрахунку LOS: {str(e)}'}), 500
 
 
+@app.route('/api/mesh_topology', methods=['GET'])
+def api_mesh_topology():
+    """Розрахунок топології меш-мережі з урахуванням реального LOS."""
+    global nodes_db
+    
+    mesh_nodes = [n for n in nodes_db.values() if n.get('mesh_active', False)]
+    if len(mesh_nodes) < 2:
+        return jsonify({'links': [], 'masters': []})
+        
+    pairs = []
+    coords_list = []
+    samples = 15
+    
+    # 1. Збираємо всі пари
+    for i in range(len(mesh_nodes)):
+        for j in range(i + 1, len(mesh_nodes)):
+            n1 = mesh_nodes[i]
+            n2 = mesh_nodes[j]
+            dist = haversine_distance(n1['lat'], n1['lng'], n2['lat'], n2['lng'])
+            if dist > 15000:
+                continue
+                
+            line_coords = sample_line(n1['lat'], n1['lng'], n2['lat'], n2['lng'], samples=samples)
+            pairs.append({
+                'n1': n1, 'n2': n2, 'dist': dist, 
+                'start_idx': len(coords_list),
+                'count': len(line_coords)
+            })
+            coords_list.extend(line_coords)
+            
+    if not pairs:
+        return jsonify({'links': [], 'masters': []})
+        
+    # 2. Отримуємо висоти пакетом
+    elevations = []
+    try:
+        if len(coords_list) > 0:
+            # Обмежуємо до 500 точок для API, якщо більше - синтетика (щоб не покласти)
+            if len(coords_list) < 500:
+                loc_str = '|'.join(f'{lat},{lng}' for lat, lng in coords_list)
+                resp = requests.get(f'https://api.open-elevation.com/api/v1/lookup?locations={loc_str}', timeout=5)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    elevations = [r['elevation'] for r in data.get('results', [])]
+    except Exception as e:
+        print(f"[MESH] Bulk elevation failed: {e}")
+        
+    if len(elevations) != len(coords_list):
+        # Fallback
+        elevations = []
+        for p in pairs:
+            n1 = p['n1']
+            n2 = p['n2']
+            synth = generate_synthetic_elevation(n1['lat'], n1['lng'], n2['lat'], n2['lng'], samples)
+            elevations.extend(synth)
+            
+    # 3. Аналізуємо LOS для кожної пари
+    links = []
+    connections = {n['id']: 0 for n in mesh_nodes}
+    
+    for p in pairs:
+        elev_slice = elevations[p['start_idx'] : p['start_idx'] + p['count']]
+        h_a = p['n1'].get('altitude_m', 2.0)
+        h_b = p['n2'].get('altitude_m', 2.0)
+        
+        # Визначаємо частоту: 1 Micro=433, 3 Micro=433, Relay=900 (наприклад)
+        freq = 900.0 if p['n1'].get('model') == 'relay' or p['n2'].get('model') == 'relay' else 433.0
+        
+        los_res = compute_los(elev_slice, base_height_a=h_a, base_height_b=h_b, freq_mhz=freq, distance_m=p['dist'])
+        
+        links.append({
+            'source': p['n1']['id'],
+            'target': p['n2']['id'],
+            'distance_m': round(p['dist'], 1),
+            'has_los': los_res['пряма_видимість'],
+            'fresnel_m': los_res.get('макс_зона_френеля_м', 0)
+        })
+        
+        if los_res['пряма_видимість']:
+            connections[p['n1']['id']] += 1
+            connections[p['n2']['id']] += 1
+            
+    # 4. Визначаємо майстер-ноди (Masters)
+    masters = []
+    total_other = len(mesh_nodes) - 1
+    if total_other > 0:
+        for n in mesh_nodes:
+            conn_ratio = connections[n['id']] / total_other
+            # Реле отримують бонус 20%
+            if n.get('model') == 'relay':
+                conn_ratio += 0.2
+                
+            if conn_ratio >= 0.8:
+                masters.append(n['id'])
+                
+    return jsonify({'links': links, 'masters': masters})
+
 # ---- HOME POINT API ----
 
 @app.route('/api/home', methods=['GET', 'POST', 'DELETE'])
