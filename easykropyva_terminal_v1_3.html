@@ -220,12 +220,18 @@
     }
 
     #elevation-stats {
-      display: flex;
-      justify-content: space-between;
-      padding: 6px 10px;
+      display: block;
+      padding: 10px;
       font-size: 11px;
       color: var(--ok);
       border-bottom: 1px solid var(--line);
+      line-height: 1.6;
+      max-height: 100px;
+      overflow-y: auto;
+    }
+    #elevation-stats span {
+      display: inline-block;
+      margin-right: 12px;
     }
 
     .chart-wrap {
@@ -362,16 +368,9 @@
       <button id="btn-add-target" class="tool-btn">+ TARGET</button>
     </div>
     <div class="toolbar" style="margin-top:8px; border-top:1px solid var(--line); padding-top:8px;">
-      <button class="tool-btn" onclick="setMode('range')" title="Measurement / Elevation Profile">RANGE/LOS</button>
-      <button class="tool-btn" id="mesh-toggle-btn" onclick="toggleMesh()" title="Mesh Network View">MESH: OFF</button>
-      <button class="tool-btn" onclick="clearAll()" style="color:#ff3366">CLEAR ALL</button>
-    </div>
-
-    <!-- Секція: Інструменти -->
-    <div class="section-title">ІНСТРУМЕНТИ</div>
-    <div class="toolbar" style="grid-template-columns: 1fr 1fr;">
-      <button id="btn-range" class="tool-btn">RANGE</button>
-      <button id="btn-clear" class="tool-btn" style="border-color: var(--danger); color: var(--danger)">CLEAR</button>
+      <button id="btn-range" class="tool-btn" onclick="toggleMode('range')" title="Measurement / Elevation Profile">RANGE/LOS</button>
+      <button id="mesh-toggle-btn" class="tool-btn" onclick="toggleMesh()" title="Mesh Network View">MESH: OFF</button>
+      <button id="btn-clear" class="tool-btn" onclick="clearAll()" style="border-color: var(--danger); color: var(--danger)">CLEAR ALL</button>
     </div>
 
     <!-- Секція: Карта -->
@@ -605,11 +604,14 @@
     function updateMesh() {
         if (!meshActive) return;
         meshGroup.clearLayers();
-        const nodes = Object.values(nodeMarkers);
+        const nodes = Object.values(nodeMarkers).map(m => m.tactical).filter(n => n && n.mesh_active);
+        
         for (let i = 0; i < nodes.length; i++) {
             for (let j = i + 1; j < nodes.length; j++) {
-                const p1 = nodes[i].getLatLng();
-                const p2 = nodes[j].getLatLng();
+                const n1 = nodes[i];
+                const n2 = nodes[j];
+                const p1 = L.latLng(n1.lat, n1.lng);
+                const p2 = L.latLng(n2.lat, n2.lng);
                 const dist = map.distance(p1, p2) / 1000;
                 
                 // Візуалізація зв'язку (поки що за дистанцією, зелена якщо < 5км)
@@ -1319,7 +1321,16 @@
         fetchData();
     }
 
-    // ---- Fetch & Render ----
+    async function updateNodeConfig(id, data) {
+        try {
+            await fetch(`/api/nodes/${id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            fetchData();
+        } catch (e) { console.error('Update failed:', e); }
+    }
     async function fetchData() {
         try {
             const [nr, tr] = await Promise.all([fetch('/api/nodes'), fetch('/api/targets')]);
@@ -1344,8 +1355,36 @@
                             handleRangeClick(m.getLatLng());
                         }
                     });
-                    m.bindPopup(`<b>${n.name}</b><br/>Тип: ${n.type}<br/><a href="#" onclick="deleteNode(${n.id});return false;" style="color:#ff3366">ВИДАЛИТИ</a>`);
-                    m.on('contextmenu', () => deleteNode(n.id));
+                    
+                    const popupContent = `
+                        <div style="min-width:180px; color:#fff; background:#121d26; padding:5px;">
+                            <b style="color:var(--warn)">${n.name}</b><br>
+                            <div style="margin-top:10px">
+                                Висота (м): <input type="number" step="0.1" value="${n.altitude_m}" 
+                                    onchange="updateNodeConfig(${n.id}, {altitude_m: parseFloat(this.value)})"
+                                    style="width:60px; background:#000; color:#fff; border:1px solid #444; padding:2px; font-size:12px">
+                            </div>
+                            <div style="margin-top:8px">
+                                Модель: <select onchange="updateNodeConfig(${n.id}, {model: this.value})"
+                                    style="background:#000; color:#fff; border:1px solid #444; padding:2px; font-size:12px">
+                                    <option value="1" ${n.model==='1'?'selected':''}>1 Micro</option>
+                                    <option value="3" ${n.model==='3'?'selected':''}>3 Micro</option>
+                                    <option value="relay" ${n.model==='relay'?'selected':''}>Relay</option>
+                                </select>
+                            </div>
+                            <div style="margin-top:8px">
+                                Mesh: <button onclick="updateNodeConfig(${n.id}, {mesh_active: ${!n.mesh_active}})"
+                                    style="background:${n.mesh_active?'#00e676':'#666'}; color:#000; border:none; padding:4px 10px; border-radius:4px; font-weight:bold; cursor:pointer">
+                                    ${n.mesh_active?'ACTIVE':'DISABLED'}
+                                </button>
+                            </div>
+                            <div style="margin-top:12px; border-top:1px solid #333; padding-top:8px; display:flex; justify-content:space-between; align-items:center;">
+                                <small style="color:#8a9ba8">ID: ${n.id}</small>
+                                <button onclick="deleteNode(${n.id})" style="color:#ff3366; background:none; border:none; cursor:pointer; font-weight:bold">ВИДАЛИТИ</button>
+                            </div>
+                        </div>
+                    `;
+                    m.bindPopup(popupContent, { maxWidth: 220, className: 'tactical-popup' });
                     nodeMarkers[n.id] = m;
                 }
                 

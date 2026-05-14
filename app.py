@@ -48,18 +48,35 @@ def api_nodes():
         'type': payload.get('type', 'sensor'),
         'lat': payload.get('lat'),
         'lng': payload.get('lng'),
+        'altitude_m': payload.get('altitude_m', 2.0),
+        'mesh_active': payload.get('mesh_active', True),
+        'model': payload.get('model', '1'),
         'battery': payload.get('battery', 100),
     }
     nodes.append(item)
     return jsonify(item), 201
 
 
-@app.route('/api/nodes/<int:node_id>', methods=['DELETE'])
-def api_delete_node(node_id: int):
-    """Delete one node by ID"""
+@app.route('/api/nodes/<int:node_id>', methods=['DELETE', 'PATCH'])
+def api_node_detail(node_id: int):
+    """Detail view for a node (Delete or Update)"""
     global nodes
-    nodes = [n for n in nodes if n.get('id') != node_id]
-    return jsonify({'ok': True})
+    if request.method == 'DELETE':
+        nodes = [n for n in nodes if n.get('id') != node_id]
+        return jsonify({'ok': True})
+    
+    if request.method == 'PATCH':
+        payload = request.get_json(silent=True) or {}
+        for node in nodes:
+            if node.get('id') == node_id:
+                node.update({
+                    'altitude_m': payload.get('altitude_m', node['altitude_m']),
+                    'mesh_active': payload.get('mesh_active', node['mesh_active']),
+                    'model': payload.get('model', node['model']),
+                    'name': payload.get('name', node['name'])
+                })
+                return jsonify(node)
+        return jsonify({'error': 'Not found'}), 404
 
 
 @app.route('/api/targets', methods=['GET', 'POST'])
@@ -307,9 +324,9 @@ def sample_line(p1_lat, p1_lng, p2_lat, p2_lng, samples=30):
     return coords
 
 
-def compute_los(elevations, base_height_a=2.0, base_height_b=2.0):
+def compute_los(elevations, base_height_a=2.0, base_height_b=2.0, freq_mhz=433.0, distance_m=0.0):
     """
-    Розрахунок прямої видимості (Line of Sight).
+    Розрахунок прямої видимості (Line of Sight) з урахуванням зони Френеля.
     
     base_height_a/b — стандартна висота антени/датчика над рельєфом (м).
     Повертає dict з результатами аналізу (українською мовою).
@@ -330,9 +347,19 @@ def compute_los(elevations, base_height_a=2.0, base_height_b=2.0):
         line_height = elev_a + f * (elev_b - elev_a)
         terrain = elevations[i]
 
-        if terrain > line_height:
+        # Розрахунок зони Френеля для цієї точки
+        clearance_required = 0.0
+        if distance_m > 0 and freq_mhz > 0:
+            d1_km = (f * distance_m) / 1000.0
+            d2_km = ((1 - f) * distance_m) / 1000.0
+            D_km = distance_m / 1000.0
+            f_ghz = freq_mhz / 1000.0
+            fresnel_radius = 17.32 * math.sqrt((d1_km * d2_km) / (f_ghz * D_km))
+            clearance_required = 0.6 * fresnel_radius  # Потрібно 60% чистої зони
+
+        if terrain > (line_height - clearance_required):
             los_clear = False
-            diff = terrain - line_height
+            diff = terrain - (line_height - clearance_required)
             if diff > max_obstruction:
                 max_obstruction = diff
                 obstruction_idx = i
@@ -347,22 +374,39 @@ def compute_los(elevations, base_height_a=2.0, base_height_b=2.0):
         'кількість_точок': n,
     }
 
+    if distance_m > 0 and freq_mhz > 0:
+        d_half_km = (distance_m / 2) / 1000.0
+        D_km = distance_m / 1000.0
+        f_ghz = freq_mhz / 1000.0
+        max_fresnel = 17.32 * math.sqrt((d_half_km * d_half_km) / (f_ghz * D_km))
+        result['макс_зона_френеля_м'] = round(max_fresnel, 1)
+
     if not los_clear:
         # Розрахунок, на скільки треба підняти точку A
         required_lift = 0.0
         for i in range(1, n - 1):
             f = i / (n - 1)
             terrain = elevations[i]
-            # Рівняння прямої: H_A + f*(H_B - H_A) = terrain
-            # H_A_new = terrain - f*(H_B - H_A)
-            needed_ha = terrain - f * (elev_b - base_height_a)
-            lift = needed_ha - elevations[0]
+            
+            clearance_required = 0.0
+            if distance_m > 0 and freq_mhz > 0:
+                d1_km = (f * distance_m) / 1000.0
+                d2_km = ((1 - f) * distance_m) / 1000.0
+                D_km = distance_m / 1000.0
+                f_ghz = freq_mhz / 1000.0
+                fresnel_radius = 17.32 * math.sqrt((d1_km * d2_km) / (f_ghz * D_km))
+                clearance_required = 0.6 * fresnel_radius
+
+            # H_A_new > (terrain + clearance_required - f * H_B) / (1 - f)
+            needed_ha = (terrain + clearance_required - f * elev_b) / (1 - f)
+            lift = needed_ha - elev_a
             if lift > required_lift:
                 required_lift = lift
+                
         result['необхідний_підйом_м'] = round(required_lift + 0.5, 1)  # +0.5 м запасу
         result['висота_перешкоди'] = round(elevations[obstruction_idx], 1)
         result['відстань_до_перешкоди_відсоток'] = round((obstruction_idx / (n - 1)) * 100, 1)
-        result['відстань_до_перешкоди_м'] = round(haversine_distance(0, 0, 0, 0) * (obstruction_idx / (n - 1)), 1)
+        result['відстань_до_перешкоди_м'] = round(distance_m * (obstruction_idx / (n - 1)), 1)
     else:
         result['необхідний_підйом_м'] = 0.0
 
@@ -409,12 +453,11 @@ def api_los():
     base_h_a = payload.get('base_height_a', 2.0)
     base_h_b = payload.get('base_height_b', 2.0)
     samples = payload.get('samples', 30)
+    freq_mhz = payload.get('freq_mhz', 433.0)
 
     # Підтримка повітряних цілей
     target_type = payload.get('target_type', 'ground')  # 'ground' або 'air'
     target_altitude_m = payload.get('target_altitude_m', 0.0)
-    if target_type == 'air' and target_altitude_m > 0:
-        base_h_b += target_altitude_m  # Додаємо висоту цілі до висоти точки B
 
     elevations = None
     using_fallback = False
@@ -442,8 +485,9 @@ def api_los():
         using_fallback = True
 
     try:
-        result = compute_los(elevations, base_height_a=base_h_a, base_height_b=base_h_b)
-        result['відстань_м'] = round(haversine_distance(lat1, lng1, lat2, lng2), 1)
+        distance_m = haversine_distance(lat1, lng1, lat2, lng2)
+        result = compute_los(elevations, base_height_a=base_h_a, base_height_b=base_h_b, freq_mhz=freq_mhz, distance_m=distance_m)
+        result['відстань_м'] = round(distance_m, 1)
         result['відстань_км'] = round(result['відстань_м'] / 1000, 2)
         result['синтетичні_дані'] = using_fallback
         result['target_type'] = target_type
