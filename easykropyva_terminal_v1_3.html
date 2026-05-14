@@ -597,6 +597,8 @@
     let homeMarker = null;
     let homePoint = null; // Для double-click
     let lastLosPoints = null; // Для перерахунку LOS з іншими параметрами цілі
+    let elevationPoints = [];
+    let hoverMarker = null;
 
     // ---- Coordinate Display ----
     map.on('mousemove', (e) => {
@@ -921,6 +923,8 @@
         isDrawingRange = false;
         rangePoints = [];
         if (rangeLine) { map.removeLayer(rangeLine); rangeLine = null; }
+        if (hoverMarker) { map.removeLayer(hoverMarker); hoverMarker = null; }
+        elevationPoints = [];
         document.getElementById('elevation-panel').style.display = 'none';
     }
 
@@ -956,10 +960,12 @@
 
         const samples = 30;
         const coords = [];
+        elevationPoints = [];
         for (let i = 0; i <= samples; i++) {
             const lat = p1.lat + (p2.lat - p1.lat) * (i / samples);
             const lng = p1.lng + (p2.lng - p1.lng) * (i / samples);
             coords.push(`${lat},${lng}`);
+            elevationPoints.push([lat, lng]);
         }
 
         let elevations = null;
@@ -1078,12 +1084,35 @@
                     fill: true,
                     tension: 0.4,
                     pointRadius: 2,
-                    pointBackgroundColor: '#00e676'
+                    pointBackgroundColor: '#00e676',
+                    pointHoverRadius: 5,
+                    pointHoverBackgroundColor: '#fff'
                 }]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false
+                },
+                onHover: (event, elements) => {
+                    if (elements && elements.length > 0) {
+                        const index = elements[0].index;
+                        if (elevationPoints[index]) {
+                            if (!hoverMarker) {
+                                hoverMarker = L.circleMarker(elevationPoints[index], {
+                                    radius: 5, color: '#fff', weight: 2, fillColor: '#00e676', fillOpacity: 1
+                                }).addTo(map);
+                            } else {
+                                hoverMarker.setLatLng(elevationPoints[index]);
+                            }
+                        }
+                    } else if (hoverMarker) {
+                        map.removeLayer(hoverMarker);
+                        hoverMarker = null;
+                    }
+                },
                 plugins: { legend: { display: false } },
                 scales: {
                     x: { ticks: { color: '#8a9ba8', font: { size: 10 } }, grid: { display: false } },
