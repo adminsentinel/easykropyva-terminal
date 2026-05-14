@@ -445,14 +445,21 @@
         <span>ELEVATION PROFILE</span>
         <button onclick="closeElevation()">CLOSE</button>
       </div>
-      <div style="display:flex; gap:8px; padding:6px 10px; border-bottom:1px solid var(--line); align-items:center;">
-        <label style="font-size:11px; color:var(--text-dim);">Ціль:</label>
+      <div style="display:flex; gap:8px; padding:6px 10px; border-bottom:1px solid var(--line); align-items:center; flex-wrap:wrap;">
+        <label style="font-size:11px; color:var(--text-dim);">Висота А (Сенсор):</label>
+        <input id="los-source-alt" type="number" value="2.0" min="0" max="100" step="0.1" title="Висота над землею (м)" style="width:40px; background:var(--panel-2); border:1px solid var(--line); color:var(--text); border-radius:4px; font-size:11px; padding:2px 4px;">
+        <span style="font-size:11px; color:var(--text-dim);">м</span>
+
+        <label style="font-size:11px; color:var(--text-dim); margin-left:10px;">Ціль Б:</label>
         <select id="los-target-type" style="background:var(--panel-2); border:1px solid var(--line); color:var(--text); border-radius:4px; font-size:11px; padding:2px 6px;">
-          <option value="ground">Земля</option>
-          <option value="air">Повітря (БПЛА)</option>
+          <option value="ground" selected>Наземна</option>
+          <option value="air">Повітряна</option>
         </select>
-        <input id="los-target-alt" type="number" value="100" min="0" max="1000" style="width:60px; background:var(--panel-2); border:1px solid var(--line); color:var(--text); border-radius:4px; font-size:11px; padding:2px 6px; display:none;">
-        <span id="los-alt-label" style="font-size:11px; color:var(--text-dim); display:none;">м</span>
+        <input id="los-target-alt" type="number" value="2.0" min="0" max="1000" step="0.1" title="Висота над землею (м)" style="width:45px; background:var(--panel-2); border:1px solid var(--line); color:var(--text); border-radius:4px; font-size:11px; padding:2px 4px;">
+        <span id="los-alt-label" style="font-size:11px; color:var(--text-dim);">м</span>
+        <label style="font-size:11px; color:var(--text-dim); margin-left:10px;">Частота:</label>
+        <input id="los-freq" type="number" value="433" min="100" max="6000" step="1" title="Частота (МГц)" style="width:45px; background:var(--panel-2); border:1px solid var(--line); color:var(--text); border-radius:4px; font-size:11px; padding:2px 4px;">
+        <span style="font-size:11px; color:var(--text-dim);">МГц</span>
         <button id="los-recalc" class="tool-btn" style="margin-left:auto; font-size:11px; padding:2px 8px;">⟳ LOS</button>
       </div>
       <div id="elevation-stats"><span>DIST: -</span><span>MAX ALT: -</span></div>
@@ -997,8 +1004,13 @@
         const dist = distKm.toFixed(2);
 
         // Отримуємо параметри цілі з UI
+        const sourceAlt = parseFloat(document.getElementById('los-source-alt').value) || 2.0;
         const targetType = document.getElementById('los-target-type').value;
-        const targetAlt = parseFloat(document.getElementById('los-target-alt').value) || 0;
+        const targetAlt = parseFloat(document.getElementById('los-target-alt').value) || 2.0;
+        const freqMhz = parseFloat(document.getElementById('los-freq').value) || 433;
+
+        let h_a = sourceAlt;
+        let h_b = targetAlt;
 
         // Завжди робимо LOS аналіз через свій бекенд
         try {
@@ -1009,9 +1021,10 @@
                 body: JSON.stringify({
                     lat1: p1.lat, lng1: p1.lng,
                     lat2: p2.lat, lng2: p2.lng,
-                    base_height_a: 2.0, base_height_b: 2.0, samples: samples,
+                    base_height_a: h_a, base_height_b: h_b, samples: samples,
                     target_type: targetType,
-                    target_altitude_m: targetAlt
+                    target_altitude_m: targetAlt,
+                    freq_mhz: freqMhz
                 })
             }, 2);
             
@@ -1045,9 +1058,10 @@
             const distanceKm = losData['відстань_км'] || dist;
             
             // Інфо про тип цілі
-            const targetTypeLabel = targetType === 'air' ? `🚁 БПЛА (+${targetAlt}м)` : '🚗 Земля';
+            const targetTypeLabel = targetType === 'air' ? `🚁 БПЛА (+${targetAlt}м)` : `🚗 Земля (${targetAlt}м)`;
+            const fresnelMax = losData['макс_зона_френеля_м'] ? ` | Fresnel(Max): ${losData['макс_зона_френеля_м']}м` : '';
             let losHtml = `<span>ВІДСТАНЬ: ${distanceKm} км</span><span>МАКС ВИСОТА: ${maxAlt} м</span>`;
-            losHtml += `<br><span style="color:var(--text-dim); font-size:10px">ЦІЛЬ: ${targetTypeLabel}</span>`;
+            losHtml += `<br><span style="color:var(--text-dim); font-size:10px">ЦІЛЬ: ${targetTypeLabel} | ${freqMhz} МГц${fresnelMax}</span>`;
             
             if (losStatus === true || losStatus === 'true') {
                 losHtml += `<br><span style="color:#00e676">✓ ПРЯМА ВИДИМІСТЬ: Є</span>`;
@@ -1115,7 +1129,14 @@
                                 hoverMarker.setLatLng(elevationPoints[index]);
                             }
                         }
-                    } else if (hoverMarker) {
+                        if (hoverMarker) {
+                            map.removeLayer(hoverMarker);
+                            hoverMarker = null;
+                        }
+                    }
+                },
+                onLeave: (event, elements) => {
+                    if (hoverMarker) {
                         map.removeLayer(hoverMarker);
                         hoverMarker = null;
                     }
@@ -1267,23 +1288,17 @@
     }
 
     // ---- LOS Target Type UI Handlers ----
-    document.getElementById('los-target-type').addEventListener('change', (e) => {
-        const altInput = document.getElementById('los-target-alt');
-        const altLabel = document.getElementById('los-alt-label');
-        if (e.target.value === 'air') {
-            altInput.style.display = 'inline-block';
-            altLabel.style.display = 'inline';
-        } else {
-            altInput.style.display = 'none';
-            altLabel.style.display = 'none';
-        }
-    });
-
-    document.getElementById('los-recalc').addEventListener('click', () => {
+    const recalcLosIfActive = () => {
         if (lastLosPoints && lastLosPoints.length === 2) {
             showElevation(lastLosPoints[0], lastLosPoints[1]);
         }
-    });
+    };
+
+    document.getElementById('los-source-alt').addEventListener('input', recalcLosIfActive);
+    document.getElementById('los-target-type').addEventListener('change', recalcLosIfActive);
+    document.getElementById('los-target-alt').addEventListener('input', recalcLosIfActive);
+    document.getElementById('los-freq').addEventListener('input', recalcLosIfActive);
+    document.getElementById('los-recalc').addEventListener('click', recalcLosIfActive);
 
     setInterval(fetchData, 10000);
     fetchData();
