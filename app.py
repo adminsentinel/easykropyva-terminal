@@ -73,7 +73,9 @@ def api_node_detail(node_id: int):
                     'altitude_m': payload.get('altitude_m', node['altitude_m']),
                     'mesh_active': payload.get('mesh_active', node['mesh_active']),
                     'model': payload.get('model', node['model']),
-                    'name': payload.get('name', node['name'])
+                    'name': payload.get('name', node['name']),
+                    'lat': payload.get('lat', node['lat']),
+                    'lng': payload.get('lng', node['lng']),
                 })
                 return jsonify(node)
         return jsonify({'error': 'Not found'}), 404
@@ -501,9 +503,9 @@ def api_los():
 @app.route('/api/mesh_topology', methods=['GET'])
 def api_mesh_topology():
     """Розрахунок топології меш-мережі з урахуванням реального LOS."""
-    global nodes_db
+    global nodes
     
-    mesh_nodes = [n for n in nodes_db.values() if n.get('mesh_active', False)]
+    mesh_nodes = [n for n in nodes if n.get('mesh_active', False)]
     if len(mesh_nodes) < 2:
         return jsonify({'links': [], 'masters': []})
         

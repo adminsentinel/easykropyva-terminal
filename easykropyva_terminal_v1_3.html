@@ -100,6 +100,26 @@
       border: 1px solid var(--line);
       border-radius: 10px;
       padding: 10px;
+      transition: all 0.3s ease;
+    }
+
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .panel-header:hover { color: var(--warn); }
+
+    .panel-body {
+      margin-top: 10px;
+      display: block;
+    }
+
+    .panel-body.hidden {
+      display: none;
     }
 
     .panel.compact {
@@ -349,9 +369,9 @@
     }
 
     .topo-blend {
-      mix-blend-mode: multiply;
-      filter: grayscale(0.8) contrast(1.5);
-      opacity: 0.8;
+      mix-blend-mode: screen;
+      filter: invert(1) grayscale(1) opacity(0.4) contrast(1.2);
+      pointer-events: none;
     }
   </style>
 </head>
@@ -384,11 +404,17 @@
     <!-- Секція: Статус -->
     <div class="section-title">СТАТУС</div>
     <div class="panel compact">
-      <div class="row"><span>COORD</span><span id="coord-display">--</span></div>
-      <div class="row"><span>NODES</span><span id="node-count">0</span></div>
-      <div class="row"><span>TARGETS</span><span id="target-count">0</span></div>
-      <div class="row"><span>HOME</span><span id="home-status">--</span></div>
-      <div class="row"><span>NETWORK</span><span id="network-status">ONLINE</span></div>
+      <div class="panel-header" onclick="toggleStatusPanel()">
+         <span id="status-summary" style="font-size: 11px; font-weight: bold; color: var(--ok);">ONLINE • 0 NODES</span>
+         <span id="status-chevron">▼</span>
+      </div>
+      <div id="status-body" class="panel-body hidden">
+        <div class="row"><span>COORD</span><span id="coord-display">--</span></div>
+        <div class="row"><span>NODES</span><span id="node-count">0</span></div>
+        <div class="row"><span>TARGETS</span><span id="target-count">0</span></div>
+        <div class="row"><span>HOME</span><span id="home-status">--</span></div>
+        <div class="row"><span>NETWORK</span><span id="network-status">ONLINE</span></div>
+      </div>
     </div>
 
     <!-- Секція: Список об'єктів -->
@@ -426,17 +452,30 @@
     </div>
   </div>
 
-  <!-- Модальне вікно підтвердження для нод -->
+  <!-- Модальне вікно підтвердження для нод (SENSOR/RELAY) -->
   <div id="confirm-modal" class="modal" style="display:none;">
     <div class="modal-content">
-      <div class="modal-title">Підтвердження</div>
+      <div class="modal-title" id="confirm-title">Нова НОДА</div>
       <div class="modal-body">
-        <p id="confirm-text">Встановити ноду тут?</p>
-        <p id="confirm-coords" style="color: var(--text-dim); font-size: 11px;"></p>
+        <div class="form-row">
+          <label>Висота антени (м):</label>
+          <input type="number" id="node-confirm-alt" value="2.0" step="0.1" min="0">
+        </div>
+        <div class="form-row" id="node-model-row">
+          <label>Модель пристрою:</label>
+          <select id="node-confirm-model">
+            <option value="1">1 Micro (433)</option>
+            <option value="3">3 Micro (433)</option>
+            <option value="relay">Relay (900)</option>
+          </select>
+        </div>
+        <div class="row" style="margin-top: 10px; border-top: 1px solid var(--line); padding-top: 10px;">
+          <span>COORD:</span><span id="confirm-coords" style="color: var(--text-dim); font-size: 11px;"></span>
+        </div>
       </div>
       <div class="modal-actions">
         <button id="btn-confirm-cancel" class="tool-btn">Скасувати</button>
-        <button id="btn-confirm-ok" class="tool-btn" style="border-color: var(--ok); color: var(--ok);">Так</button>
+        <button id="btn-confirm-ok" class="tool-btn" style="border-color: var(--ok); color: var(--ok);">Встановити</button>
       </div>
     </div>
   </div>
@@ -701,12 +740,16 @@
     let elevationPoints = [];
     let elevationMarkers = L.layerGroup().addTo(map);
     let hoverMarker = null;
+    let rangePolyline = null; // Фікс для Range Profile
 
     // ---- Coordinate Display ----
     map.on('mousemove', (e) => {
         const lat = e.latlng.lat.toFixed(5);
         const lng = e.latlng.lng.toFixed(5);
         document.getElementById('coord-display').innerText = `${lat}, ${lng}`;
+        if (!document.getElementById('status-body').classList.contains('hidden')) {
+             // Update if open
+        }
 
         // Rubber-band effect
         if (isDrawingRange && rangePoints.length === 1 && rangeLine) {
@@ -817,10 +860,17 @@
                 autoCounter[mode]++;
                 const prefix = mode === 'sensor' ? 'SN' : 'RL';
                 const name = `${prefix}-${String(autoCounter[mode]).padStart(3, '0')}`;
+                const altitude = parseFloat(document.getElementById('node-confirm-alt').value) || 2.0;
+                const model = document.getElementById('node-confirm-model').value;
+                
                 await fetch('/api/nodes', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name, type: mode, lat, lng })
+                    body: JSON.stringify({ 
+                        name, type: mode, lat, lng, 
+                        altitude_m: altitude, 
+                        model: model 
+                    })
                 });
             }
         } catch (e) {
@@ -971,10 +1021,30 @@
 
         // HOME, SENSOR, RELAY - показуємо підтвердження
         const modeNames = { home: 'HOME', sensor: 'SENSOR', relay: 'RELAY' };
-        document.getElementById('confirm-text').innerText = `Встановити ${modeNames[placingMode]} тут?`;
+        document.getElementById('confirm-title').innerText = `Встановити ${modeNames[placingMode]}`;
         document.getElementById('confirm-coords').innerText = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+        
+        // Сховати вибір моделі для HOME
+        document.getElementById('node-model-row').style.display = placingMode === 'home' ? 'none' : 'flex';
+        // Висота для HOME за замовчуванням 0
+        if (placingMode === 'home') document.getElementById('node-confirm-alt').value = 0;
+        
         document.getElementById('confirm-modal').style.display = 'flex';
     });
+
+    function toggleStatusPanel() {
+        const body = document.getElementById('status-body');
+        const chevron = document.getElementById('status-chevron');
+        body.classList.toggle('hidden');
+        chevron.innerText = body.classList.contains('hidden') ? '▼' : '▲';
+    }
+
+    function updateStatusSummary(nodes, isOnline) {
+        const summary = document.getElementById('status-summary');
+        const netText = isOnline ? 'ONLINE' : 'OFFLINE';
+        summary.innerText = `${netText} • ${nodes.length} NODES`;
+        summary.style.color = isOnline ? 'var(--ok)' : 'var(--danger)';
+    }
 
     // Load home point on startup
     async function loadHome() {
@@ -1396,7 +1466,16 @@
             nodes.forEach(n => {
                 activeNodeIds.add(n.id);
                 if (!nodeMarkers[n.id] && n.lat && n.lng) {
-                    const m = L.marker([n.lat, n.lng], { icon: ICONS[n.type] || ICONS.sensor }).addTo(map);
+                    const m = L.marker([n.lat, n.lng], { 
+                        icon: ICONS[n.type] || ICONS.sensor,
+                        draggable: true 
+                    }).addTo(map);
+                    
+                    m.on('dragend', async (e) => {
+                        const newPos = m.getLatLng();
+                        await updateNodeConfig(n.id, { lat: newPos.lat, lng: newPos.lng });
+                    });
+
                     m.on('click', (e) => {
                         if (placingMode === 'range') {
                             L.DomEvent.stopPropagation(e);
@@ -1502,6 +1581,7 @@
             });
 
             if (meshActive) updateMesh();
+            updateStatusSummary(nodes, isOnline);
 
         } catch (e) {
             console.error(e);
