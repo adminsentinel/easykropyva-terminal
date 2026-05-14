@@ -341,6 +341,12 @@
       .sidebar { border-right: none; border-bottom: 1px solid var(--line); max-height: 45vh; }
       #elevation-panel { width: calc(100% - 24px); }
     }
+
+    .topo-blend {
+      mix-blend-mode: multiply;
+      filter: grayscale(0.8) contrast(1.5);
+      opacity: 0.8;
+    }
   </style>
 </head>
 <body>
@@ -368,7 +374,7 @@
     <div class="toolbar" style="grid-template-columns: 1fr 1fr 1fr;">
       <button id="btn-map-topo" class="tool-btn active">TOPO</button>
       <button id="btn-map-sat" class="tool-btn">SAT</button>
-      <button id="btn-map-terrain" class="tool-btn">TERRAIN</button>
+      <button id="btn-map-satalt" class="tool-btn" title="Супутник + Висоти">SAT+ALT</button>
     </div>
 
     <!-- Секція: Статус -->
@@ -504,10 +510,10 @@
         zIndex: 1
     });
 
-    const terrainLayer = L.tileLayer('https://mt1.google.com/vt/lyrs=p&x={x}&y={y}&z={z}', {
-        attribution: '&copy; Google Terrain',
-        maxZoom: 20,
-        zIndex: 1
+    const topoBlendLayer = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+        className: 'topo-blend',
+        maxZoom: 17,
+        zIndex: 2
     });
 
     topoLayer.addTo(map);
@@ -516,10 +522,10 @@
     function switchMap(type) {
         map.removeLayer(topoLayer);
         map.removeLayer(satLayer);
-        map.removeLayer(terrainLayer);
+        map.removeLayer(topoBlendLayer);
         document.getElementById('btn-map-topo').classList.remove('active');
         document.getElementById('btn-map-sat').classList.remove('active');
-        document.getElementById('btn-map-terrain').classList.remove('active');
+        document.getElementById('btn-map-satalt').classList.remove('active');
 
         if (type === 'topo') {
             topoLayer.addTo(map);
@@ -529,16 +535,17 @@
             satLayer.addTo(map);
             activeLayer = satLayer;
             document.getElementById('btn-map-sat').classList.add('active');
-        } else if (type === 'terrain') {
-            terrainLayer.addTo(map);
-            activeLayer = terrainLayer;
-            document.getElementById('btn-map-terrain').classList.add('active');
+        } else if (type === 'satalt') {
+            satLayer.addTo(map);
+            topoBlendLayer.addTo(map);
+            activeLayer = topoBlendLayer;
+            document.getElementById('btn-map-satalt').classList.add('active');
         }
     }
 
     document.getElementById('btn-map-topo').onclick = () => switchMap('topo');
     document.getElementById('btn-map-sat').onclick = () => switchMap('sat');
-    document.getElementById('btn-map-terrain').onclick = () => switchMap('terrain');
+    document.getElementById('btn-map-satalt').onclick = () => switchMap('satalt');
 
     let isOnline = true;
     topoLayer.on('tileerror', () => {
