@@ -365,9 +365,10 @@
 
     <!-- Секція: Карта -->
     <div class="section-title">КАРТА</div>
-    <div class="toolbar" style="grid-template-columns: 1fr 1fr;">
+    <div class="toolbar" style="grid-template-columns: 1fr 1fr 1fr;">
       <button id="btn-map-topo" class="tool-btn active">TOPO</button>
-      <button id="btn-map-sat" class="tool-btn">SATELLITE</button>
+      <button id="btn-map-sat" class="tool-btn">SAT</button>
+      <button id="btn-map-relief" class="tool-btn" title="Накласти рельєф та висоти">RELIEF</button>
     </div>
 
     <!-- Секція: Статус -->
@@ -503,27 +504,65 @@
         zIndex: 1
     });
 
+    const hillshadeLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Elevation/World_Hillshade/MapServer/tile/{z}/{y}/{x}', {
+        attribution: '&copy; Esri Hillshade',
+        maxZoom: 18,
+        opacity: 0.6,
+        zIndex: 2
+    });
+
+    const topoOverlay = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+        opacity: 0.4,
+        zIndex: 3
+    });
+
     topoLayer.addTo(map);
     let activeLayer = topoLayer;
+    let reliefActive = false;
 
     function switchMap(type) {
         if (type === 'topo') {
             map.removeLayer(satLayer);
+            if (reliefActive) {
+                map.removeLayer(hillshadeLayer);
+                map.removeLayer(topoOverlay);
+            }
             topoLayer.addTo(map);
             activeLayer = topoLayer;
             document.getElementById('btn-map-topo').classList.add('active');
             document.getElementById('btn-map-sat').classList.remove('active');
+            document.getElementById('btn-map-relief').style.display = 'none'; // Рельєф не потрібен на Топо мапі
         } else {
             map.removeLayer(topoLayer);
             satLayer.addTo(map);
             activeLayer = satLayer;
             document.getElementById('btn-map-sat').classList.add('active');
             document.getElementById('btn-map-topo').classList.remove('active');
+            document.getElementById('btn-map-relief').style.display = 'block';
+            if (reliefActive) {
+                hillshadeLayer.addTo(map);
+                topoOverlay.addTo(map);
+            }
         }
     }
 
+    document.getElementById('btn-map-relief').onclick = () => {
+        reliefActive = !reliefActive;
+        const btn = document.getElementById('btn-map-relief');
+        if (reliefActive) {
+            btn.classList.add('active');
+            hillshadeLayer.addTo(map);
+            topoOverlay.addTo(map);
+        } else {
+            btn.classList.remove('active');
+            map.removeLayer(hillshadeLayer);
+            map.removeLayer(topoOverlay);
+        }
+    };
+
     document.getElementById('btn-map-topo').onclick = () => switchMap('topo');
     document.getElementById('btn-map-sat').onclick = () => switchMap('sat');
+    document.getElementById('btn-map-relief').style.display = 'none'; // За замовчуванням при TOPO приховано
 
     let isOnline = true;
     topoLayer.on('tileerror', () => {
