@@ -522,7 +522,6 @@ def compute_los(elevations, base_height_a=2.0, base_height_b=2.0, freq_mhz=433.0
         'необхідний_підйом_м': round(max_obstruction, 1) if not los_clear else 0.0,
         'відстань_м': round(distance_m, 1)
     }
-    }
 
 
 def generate_synthetic_elevation(lat1, lng1, lat2, lng2, samples=30):
