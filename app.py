@@ -104,12 +104,28 @@ def api_targets():
     return jsonify(item), 201
 
 
-@app.route('/api/targets/<int:target_id>', methods=['DELETE'])
-def api_delete_target(target_id: int):
-    """Delete one target by ID"""
+@app.route('/api/targets/<int:target_id>', methods=['DELETE', 'PATCH'])
+def api_target_detail(target_id: int):
+    """Detail view for a target (Delete or Update)"""
     global targets_store
-    targets_store = [t for t in targets_store if t.get('id') != target_id]
-    return jsonify({'ok': True})
+    if request.method == 'DELETE':
+        targets_store = [t for t in targets_store if t.get('id') != target_id]
+        return jsonify({'ok': True})
+    
+    if request.method == 'PATCH':
+        payload = request.get_json(silent=True) or {}
+        for target in targets_store:
+            if target.get('id') == target_id:
+                target.update({
+                    'name': payload.get('name', target['name']),
+                    'lat': payload.get('lat', target['lat']),
+                    'lng': payload.get('lng', target['lng']),
+                    'altitude_m': payload.get('altitude_m', target['altitude_m']),
+                    'altitude_type': payload.get('altitude_type', target['altitude_type']),
+                    'type': payload.get('type', target['type']),
+                })
+                return jsonify(target)
+        return jsonify({'error': 'Not found'}), 404
 
 
 @app.route('/api/clear', methods=['POST'])
@@ -303,6 +319,40 @@ def inject_multi_targets():
     return jsonify({'error': 'System not running'})
 
 
+def calculate_diffraction_loss(h, d1, d2, f_mhz):
+    """
+    Розрахунок втрат на дифракцію (Knife-edge diffraction) в dB.
+    h: висота перешкоди над лінією прямої видимості (метрів)
+    d1, d2: відстані від точок до перешкоди (метрів)
+    f_mhz: частота в МГц
+    """
+    if h <= 0:
+        return 0.0
+    
+    # Швидкість світла / частота = довжина хвилі
+    wavelength = 300.0 / f_mhz
+    
+    # Параметр Френеля-Кірхгофа (v)
+    v = h * math.sqrt((2 * (d1 + d2)) / (wavelength * d1 * d2))
+    
+    # Наближена формула для втрат (dB)
+    if v <= -1:
+        loss = 0.0
+    elif v <= 0:
+        loss = 20 * math.log10(0.5 - 0.62 * v)
+    elif v <= 1:
+        loss = 20 * math.log10(0.5 * math.exp(-0.95 * v))
+    elif v <= 2.4:
+        # Уникаємо від'ємного підкореневого виразу
+        inner = 0.1184 - (0.38 - 0.1 * v)**2
+        val = 0.4 - math.sqrt(max(0, inner))
+        loss = 20 * math.log10(max(0.001, val))
+    else:
+        loss = 20 * math.log10(0.225 / v)
+        
+    return abs(loss)
+
+
 def haversine_distance(lat1, lng1, lat2, lng2):
     """Розрахунок відстані між двома точками в метрах (Haversine)"""
     R = 6371000
@@ -313,6 +363,38 @@ def haversine_distance(lat1, lng1, lat2, lng2):
     a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(dlambda/2)**2
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
     return R * c
+
+
+def calculate_diffraction_loss(h, d1, d2, freq_mhz):
+    """
+    Knife-edge diffraction loss calculation.
+    h: obstruction height above LOS line (m). Negative means clearance.
+    d1, d2: distance from start/end to obstruction (m).
+    freq_mhz: frequency (MHz).
+    """
+    if h <= 0:
+        return 0.0
+        
+    wavelength = 300.0 / freq_mhz
+    # Nu (v) parameter
+    v = h * math.sqrt(2.0 * (d1 + d2) / (wavelength * d1 * d2))
+    
+    # Approximation of Lee's diffraction loss model
+    if v > -0.7:
+        loss = 6.9 + 20.0 * math.log10(math.sqrt((v - 0.1)**2 + 1) + v - 0.1)
+    else:
+        loss = 0.0
+        
+    return round(max(0, loss), 1)
+
+
+def calculate_earth_curvature(dist_km):
+    """
+    Calculates the earth's curvature drop (m) for a given distance.
+    Uses standard K-factor of 4/3 for refraction.
+    """
+    # h = d^2 / (2 * K * R) -> d^2 / 12.74 for K=4/3, R=6371km
+    return (dist_km**2) / 12.74
 
 
 def sample_line(p1_lat, p1_lng, p2_lat, p2_lng, samples=30):
@@ -344,6 +426,18 @@ def compute_los(elevations, base_height_a=2.0, base_height_b=2.0, freq_mhz=433.0
     max_obstruction = 0.0
     obstruction_idx = -1
 
+    # Додаємо кривизну Землі (опціонально, але для LOS аналізу корисно)
+    # h_drop = d^2 / 12.74 (спрощена формула для стандартної рефракції)
+    # Тут d в км
+    distance_km = distance_m / 1000.0
+    
+    for i in range(n):
+        f = i / (n - 1)
+        dist_from_start_km = f * distance_km
+        # Висота "просідання" горизонту через кривизну
+        earth_drop = (dist_from_start_km * (distance_km - dist_from_start_km)) / 12.74
+        elevations[i] += earth_drop
+
     for i in range(1, n - 1):
         f = i / (n - 1)
         line_height = elev_a + f * (elev_b - elev_a)
@@ -354,9 +448,12 @@ def compute_los(elevations, base_height_a=2.0, base_height_b=2.0, freq_mhz=433.0
         if distance_m > 0 and freq_mhz > 0:
             d1_km = (f * distance_m) / 1000.0
             d2_km = ((1 - f) * distance_m) / 1000.0
-            D_km = distance_m / 1000.0
             f_ghz = freq_mhz / 1000.0
-            fresnel_radius = 17.32 * math.sqrt((d1_km * d2_km) / (f_ghz * D_km))
+            # Радіо-горизонт (км) = 4.12 * (sqrt(h1) + sqrt(h2))
+            radio_horizon_km = 4.12 * (math.sqrt(base_height_a) + math.sqrt(base_height_b))
+            distance_km = distance_m / 1000.0
+            
+            fresnel_radius = 17.32 * math.sqrt((d1_km * d2_km) / (f_ghz * distance_km))
             clearance_required = 0.6 * fresnel_radius  # Потрібно 60% чистої зони
 
         if terrain > (line_height - clearance_required):
@@ -366,53 +463,66 @@ def compute_los(elevations, base_height_a=2.0, base_height_b=2.0, freq_mhz=433.0
                 max_obstruction = diff
                 obstruction_idx = i
 
-    result = {
-        'пряма_видимість': los_clear,
-        'статус': 'ВИДИМІСТЬ Є' if los_clear else 'ЗАБЛОКОВАНО',
+    # Розрахунок бюджету лінку (RSSI)
+    # FSPL = 20log10(d_km) + 20log10(f_mhz) + 32.44
+    if distance_m > 0:
+        d_km = max(0.01, distance_m / 1000.0)
+        fspl = 20 * math.log10(d_km) + 20 * math.log10(freq_mhz) + 32.44
+    else:
+        fspl = 0
+        
+    diffraction_loss = 0.0
+    if not los_clear and obstruction_idx > 0:
+        f = obstruction_idx / (n - 1)
+        d1 = f * distance_m
+        d2 = (1 - f) * distance_m
+        # h - висота перешкоди над лінією LOS
+        line_at_obs = elev_a + f * (elev_b - elev_a)
+        h_obs = elevations[obstruction_idx] - line_at_obs
+        diffraction_loss = calculate_diffraction_loss(h_obs, d1, d2, freq_mhz)
+
+    total_path_loss = fspl + diffraction_loss
+
+    # Створення профілів для графіку
+    terrain_profile = [round(e, 1) for e in elevations]
+    los_beam = []
+    fresnel_60 = []
+
+    for i in range(n):
+        f = i / (n - 1)
+        line_height = elev_a + f * (elev_b - elev_a)
+        los_beam.append(round(line_height, 1))
+
+        clearance_required = 0.0
+        if distance_m > 0 and freq_mhz > 0:
+            d1_km = (f * distance_m) / 1000.0
+            d2_km = ((1 - f) * distance_m) / 1000.0
+            f_ghz = freq_mhz / 1000.0
+            fresnel_radius = 17.32 * math.sqrt((d1_km * d2_km) / (f_ghz * distance_km))
+            clearance_required = 0.6 * fresnel_radius
+        fresnel_60.append(round(line_height - clearance_required, 1))
+
+    radio_horizon_km = 4.12 * (math.sqrt(base_height_a) + math.sqrt(base_height_b))
+    is_beyond_horizon = (distance_m / 1000.0) > radio_horizon_km
+
+    return {
+        'пряма_видимість': los_clear and not is_beyond_horizon,
+        'terrain_los': los_clear,
+        'beyond_horizon': is_beyond_horizon,
+        'radio_horizon_km': round(radio_horizon_km, 2),
+        'статус': 'ВИДИМІСТЬ Є' if (los_clear and not is_beyond_horizon) else ('ЗА ГОРИЗОНТОМ' if is_beyond_horizon else f"ЗАБЛОКОВАНО (-{round(max_obstruction, 1)}м)"),
         'висота_початку_рельєф': round(elevations[0], 1),
         'висота_кінця_рельєф': round(elevations[-1], 1),
-        'висота_антени_початок': round(elev_a, 1),
-        'висота_антени_кінець': round(elev_b, 1),
-        'кількість_точок': n,
+        'path_loss_db': round(total_path_loss, 1),
+        'fspl_db': round(fspl, 1),
+        'diffraction_loss_db': round(diffraction_loss, 1),
+        'terrain_profile': terrain_profile,
+        'los_beam': los_beam,
+        'fresnel_60': fresnel_60,
+        'необхідний_підйом_м': round(max_obstruction, 1) if not los_clear else 0.0,
+        'відстань_м': round(distance_m, 1)
     }
-
-    if distance_m > 0 and freq_mhz > 0:
-        d_half_km = (distance_m / 2) / 1000.0
-        D_km = distance_m / 1000.0
-        f_ghz = freq_mhz / 1000.0
-        max_fresnel = 17.32 * math.sqrt((d_half_km * d_half_km) / (f_ghz * D_km))
-        result['макс_зона_френеля_м'] = round(max_fresnel, 1)
-
-    if not los_clear:
-        # Розрахунок, на скільки треба підняти точку A
-        required_lift = 0.0
-        for i in range(1, n - 1):
-            f = i / (n - 1)
-            terrain = elevations[i]
-            
-            clearance_required = 0.0
-            if distance_m > 0 and freq_mhz > 0:
-                d1_km = (f * distance_m) / 1000.0
-                d2_km = ((1 - f) * distance_m) / 1000.0
-                D_km = distance_m / 1000.0
-                f_ghz = freq_mhz / 1000.0
-                fresnel_radius = 17.32 * math.sqrt((d1_km * d2_km) / (f_ghz * D_km))
-                clearance_required = 0.6 * fresnel_radius
-
-            # H_A_new > (terrain + clearance_required - f * H_B) / (1 - f)
-            needed_ha = (terrain + clearance_required - f * elev_b) / (1 - f)
-            lift = needed_ha - elev_a
-            if lift > required_lift:
-                required_lift = lift
-                
-        result['необхідний_підйом_м'] = round(required_lift + 0.5, 1)  # +0.5 м запасу
-        result['висота_перешкоди'] = round(elevations[obstruction_idx], 1)
-        result['відстань_до_перешкоди_відсоток'] = round((obstruction_idx / (n - 1)) * 100, 1)
-        result['відстань_до_перешкоди_м'] = round(distance_m * (obstruction_idx / (n - 1)), 1)
-    else:
-        result['необхідний_підйом_м'] = 0.0
-
-    return result
+    }
 
 
 def generate_synthetic_elevation(lat1, lng1, lat2, lng2, samples=30):
@@ -575,6 +685,8 @@ def api_mesh_topology():
             'target': p['n2']['id'],
             'distance_m': round(p['dist'], 1),
             'has_los': los_res['пряма_видимість'],
+            'terrain_los': los_res['terrain_los'],
+            'beyond_horizon': los_res['beyond_horizon'],
             'fresnel_m': los_res.get('макс_зона_френеля_м', 0)
         })
         
