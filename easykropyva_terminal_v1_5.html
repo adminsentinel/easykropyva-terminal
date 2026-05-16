@@ -208,15 +208,16 @@
       position: absolute;
       right: 12px;
       bottom: 12px;
-      width: 480px;
-      height: 320px;
-      background: rgba(14, 23, 31, 0.96);
+      width: 640px;
+      height: 480px;
+      background: rgba(14, 23, 31, 0.98);
       border: 1px solid var(--line);
-      border-radius: 10px;
+      border-radius: 12px;
       display: none;
       flex-direction: column;
       overflow: hidden;
       z-index: 1000;
+      box-shadow: 0 0 20px rgba(0,0,0,0.5);
     }
 
     .elev-head {
@@ -246,8 +247,7 @@
       color: var(--ok);
       border-bottom: 1px solid var(--line);
       line-height: 1.6;
-      max-height: 100px;
-      overflow-y: auto;
+      background: rgba(0,0,0,0.2);
     }
     #elevation-stats span {
       display: inline-block;
@@ -675,18 +675,25 @@
                 const p1 = n1.getLatLng();
                 const p2 = n2.getLatLng();
                 
-                // Кольори: Зелений (ОК), Жовтий (Горизонт), Червоний (Рельєф)
+                // Кольори: Зелений (ОК), Жовтий (Горизонт), Помаранчевий (Френель), Червоний (Рельєф)
                 let color = 'var(--ok)';
                 let dash = null;
                 let weight = 3;
+                let statusMsg = 'OK';
 
                 if (link.beyond_horizon) {
-                    color = 'var(--warn)';
+                    color = '#ffd700'; // Gold
                     dash = '10, 5';
+                    statusMsg = 'BEYOND HORIZON';
                 } else if (!link.terrain_los) {
-                    color = 'var(--danger)';
+                    color = '#ff0033'; // Bright Red
                     dash = '3, 6';
-                    weight = 2;
+                    weight = 4;
+                    statusMsg = 'TERRAIN BLOCKED';
+                } else if (!link.fresnel_los) {
+                    color = '#ff9800'; // Orange
+                    dash = '5, 5';
+                    statusMsg = 'FRESNEL BLOCKED';
                 }
                 
                 const poly = L.polyline([p1, p2], {
@@ -702,11 +709,7 @@
                     showElevation(p1, p2);
                 });
                 
-                let losText = 'OK';
-                if (link.beyond_horizon) losText = 'BEYOND HORIZON';
-                else if (!link.terrain_los) losText = 'TERRAIN BLOCKED';
-
-                poly.bindTooltip(`Link: ${link.distance_m}m | LOS: ${losText}`, { sticky: true });
+                poly.bindTooltip(`Link: ${link.distance_m}m | LOS: ${statusMsg}`, { sticky: true });
             });
             
             // Підсвічуємо Master ноди
