@@ -571,16 +571,10 @@
         zIndex: 1
     });
 
-    const satLayer = L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
-        attribution: '&copy; Google Hybrid',
+    const satLayer = L.tileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
+        attribution: '&copy; Google Satellite',
         maxZoom: 20,
         zIndex: 1
-    });
-
-    const topoBlendLayer = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
-        className: 'topo-blend',
-        maxZoom: 17,
-        zIndex: 2
     });
 
     topoLayer.addTo(map);
@@ -589,10 +583,9 @@
     function switchMap(type) {
         map.removeLayer(topoLayer);
         map.removeLayer(satLayer);
-        map.removeLayer(topoBlendLayer);
+        
         document.getElementById('btn-map-topo').classList.remove('active');
         document.getElementById('btn-map-sat').classList.remove('active');
-        document.getElementById('btn-map-satalt').classList.remove('active');
 
         if (type === 'topo') {
             topoLayer.addTo(map);
@@ -607,7 +600,6 @@
 
     document.getElementById('btn-map-topo').onclick = () => switchMap('topo');
     document.getElementById('btn-map-sat').onclick = () => switchMap('sat');
-    document.getElementById('btn-map-satalt').onclick = () => switchMap('satalt');
 
     let isOnline = true;
     topoLayer.on('tileerror', () => {
