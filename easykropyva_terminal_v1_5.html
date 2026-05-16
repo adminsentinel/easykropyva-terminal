@@ -208,7 +208,8 @@
       position: absolute;
       right: 12px;
       bottom: 12px;
-      width: 640px;
+      width: calc(100% - 24px);
+      max-width: 640px;
       height: 480px;
       background: rgba(14, 23, 31, 0.98);
       border: 1px solid var(--line);
@@ -354,12 +355,19 @@
     }
 
     .list-item .delete-btn {
-      background: none;
-      border: none;
+      background: rgba(255, 51, 102, 0.1);
+      border: 1px solid rgba(255, 51, 102, 0.3);
       color: var(--danger);
       cursor: pointer;
-      font-size: 14px;
-      padding: 2px 6px;
+      font-size: 16px;
+      padding: 4px 10px;
+      border-radius: 4px;
+      line-height: 1;
+      font-weight: bold;
+    }
+    .list-item .delete-btn:hover {
+      background: var(--danger);
+      color: #fff;
     }
 
     @media (max-width: 980px) {
@@ -488,7 +496,7 @@
     <section id="elevation-panel">
       <div class="elev-head">
         <span>ELEVATION PROFILE</span>
-        <button onclick="closeElevation()">CLOSE</button>
+        <button onclick="closeElevation()" style="background: var(--danger); color: #fff; border: none; font-weight: bold;">ЗАКРИТИ [X]</button>
       </div>
       <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap:8px; padding:10px; border-bottom:1px solid var(--line); background: rgba(255,255,255,0.03);">
         <div class="form-group" style="display:flex; flex-direction:column; gap:2px;">
@@ -497,7 +505,7 @@
         </div>
         <div class="form-group" style="display:flex; flex-direction:column; gap:2px;">
           <label style="font-size:10px; color:var(--text-dim); text-transform:uppercase;">Ціль Б</label>
-          <select id="los-target-type" onchange="updateTargetAltInput()" style="background:var(--panel-2); border:1px solid var(--line); color:var(--text); border-radius:4px; font-size:11px; padding:2px 4px;">
+          <select id="los-target-type" style="background:var(--panel-2); border:1px solid var(--line); color:var(--text); border-radius:4px; font-size:11px; padding:2px 4px;">
             <option value="ground" selected>Наземна</option>
             <option value="air">Повітряна</option>
           </select>
@@ -1673,6 +1681,7 @@
 
     window.deleteNode = deleteNode;
     window.deleteTarget = deleteTarget;
+    window.clearAll = clearAll;
     window.closeElevation = closeElevation;
   </script>
 </body>
