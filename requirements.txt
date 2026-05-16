@@ -1,6 +1,7 @@
-numpy>=1.20.0
-scipy>=1.7.0
-librosa
 flask
 flask-cors
+requests
+numpy
+scipy
+librosa
 pydub
